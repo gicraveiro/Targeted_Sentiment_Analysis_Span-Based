@@ -1,4 +1,4 @@
-import bert.tokenization as tokenizer
+#import bert.tokenization as tokenizer
 import torch
 import transformers # pytorch transformers
 import pandas
@@ -39,9 +39,9 @@ input_ids = torch.tensor(padded_tok_dataset)
 #print(input_ids)
 attention_mask = torch.tensor(attention_mask)
 #print(attention_mask)
-#with torch.no_grad():
-#  last_hidden_states = model(input_ids, attention_mask=attention_mask)
-#print(last_hidden_states)
+with torch.no_grad():
+  last_hidden_states = model(input_ids, attention_mask=attention_mask)
+print(last_hidden_states)
 #features = last_hidden_states[0][:,0,:].numpy()
 
 
