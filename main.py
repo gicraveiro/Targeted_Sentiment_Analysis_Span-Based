@@ -36,6 +36,12 @@ tokenized_dataset = dataframe['text'].apply((lambda x: tokenizer.encode(x, add_s
 #print(numpy.array(tokenized_dataset).shape)
 
 batch_size = 8
+dynamic_dataframe = tokenized_dataset.copy(deep=True) #copy of the dataframe to delete it parts
+print(dynamic_dataframe)
+
+while len(dynamic_dataframe) != 5:
+  dynamic_dataframe.drop([dynamic_dataframe.index[0] , dynamic_dataframe.index[4]], inplace=True)
+print(dynamic_dataframe)
 # PAD
 
 #max_len = 0
