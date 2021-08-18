@@ -18,11 +18,18 @@ model = model_class.from_pretrained(pretrained_weights)
 dataframe = pandas.read_csv("data/laptop14_train.txt", delimiter='####', header=None, names=['text','labels'])
 
 #dataframe tokenized dataset
-tokenized_dataset = dataframe['text'].apply((lambda x: tokenizer.encode(x, add_special_tokens=True)))
+max_len = 0
+for sentence in dataframe['text']:
+  if (len(sentence) > max_len):
+    max_len = len(sentence)
+    print(sentence)
+print(max_len)
+#print(dataframe['text'].str.len().sort_values())
+tokenized_dataset = dataframe['text'].apply((lambda x: tokenizer.encode(x, add_special_tokens=True''', max_length=100, truncation=True, padding=False''')))
 
 #list format tokenized dataset
 #tokenized_dataset = []
-#print(dataframe[0])
+#print(dataframe.values.len().sort_values())
 #for sentence in dataframe[0]:
 #  print(sentence)
 #  tokenized_sentence = tokenizer.encode(sentence, add_special_tokens=True)
@@ -39,11 +46,7 @@ print(max_len)
 
 #unsorted_lengths = [len(x) for x in tokenized_dataset].sort_values()
 #print(type(tokenized_dataset))
-#print(len(tokenized_dataset[0]))
-#print(unsorted_lengths)
-#print(len(tokenized_dataset[0]))
-#print(len(tokenized_dataset[0]))
-print(tokenized_dataset.name.str)
+#print(tokenized_dataset.)
 #tokenized_dataset.reindex(tokenized_dataset.name.len().sort_values().index)
 #tokenized_dataset.sort_values(key=len(x))
 #sorted_lengths = [len(x) for x in tokenized_dataset]
