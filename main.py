@@ -69,34 +69,6 @@ for batch in random_batches_list:
   attention_mask.append(torch.tensor(batch_attention_mask))
 
 
-# Get the new list of lengths after sorting.
-padded_lengths = []
-
-# For each batch...
-for batch in input_ids:
-    
-    # For each sample...
-    for s in batch:
-    
-        # Record its length.
-        padded_lengths.append(len(s))
-
-# Sum up the lengths to the get the total number of tokens after smart batching.
-smart_token_count = numpy.sum(padded_lengths)
-
-# To get the total number of tokens in the dataset using fixed padding, it's
-# as simple as the number of samples times our `max_len` parameter (that we
-# would pad everything to).
-fixed_token_count = 91*3045
-
-# Calculate the percentage reduction.
-prcnt_reduced = (fixed_token_count - smart_token_count) / float(fixed_token_count) 
-
-print('Total tokens:')
-print('   Fixed Padding: {:,}'.format(fixed_token_count))
-print('  Smart Batching: {:,}  ({:.1%} less)'.format(smart_token_count, prcnt_reduced))
-
-
 # TRAINING PART THAT MUST BE UNDERSTOOD AND CORRECTED
 
 #with torch.no_grad():
