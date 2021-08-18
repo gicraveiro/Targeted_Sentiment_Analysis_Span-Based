@@ -4,6 +4,8 @@ import transformers # pytorch transformers
 import pandas
 import numpy
 import random
+from reused import BertConfig
+
 
 
 
@@ -73,6 +75,13 @@ dataframe = dataframe.reindex(new_index_list) # sorted dataframe by length of th
 dataframe = dataframe.reset_index(drop=True)
 
 input_ids, attention_mask = restart_sampling()
+
+
+# REUSED FROM PAPER 
+
+bert_config = BertConfig.from_json_file("bert/bert_config.json") # include bert directory ONLY in local repository
+
+
 #print(input_ids)
 #print(attention_mask)
 
