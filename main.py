@@ -72,6 +72,9 @@ for batch in random_batches_list:
     sentence = sentence + [0] * num_zeros
     print(sentence)
 
+    sentence_attention_mask = (len(sentence)*[1] + num_zeros*[0])
+    print(sentence_attention_mask)
+
 
 #max_len = 0
 #for sentence in tokenized_dataset.values:
