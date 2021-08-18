@@ -47,16 +47,31 @@ while len(dynamic_dataframe) != 0:
     if( random_index < 0):
       random_index = 0
       batch_size = len(dynamic_dataframe)
-      
+
   batch = dynamic_dataframe[random_index:(random_index+batch_size)]
-  for sentence in batch:
-    random_batches_list.append(sentence)
+  random_batches_list.append(batch)
+  #for sentence in batch:
+  #  random_batches_list.append(sentence)
 
   dynamic_dataframe.drop(dynamic_dataframe.index[random_index:random_index+batch_size], inplace=True)
   
 #print(dynamic_dataframe)
 #print(random_batches_list)
-# PAD
+
+padded = []
+# PAD AND ATTENTION MASK
+for batch in random_batches_list:
+  max_len = 0
+  for sentence in batch:
+    if (len(sentence) > max_len):
+      max_len = len(sentence)
+      print(max_len)
+  
+  for sentence in batch:
+    num_zeros = max_len - len(sentence)
+    sentence = sentence + [0] * num_zeros
+    print(sentence)
+
 
 #max_len = 0
 #for sentence in tokenized_dataset.values:
