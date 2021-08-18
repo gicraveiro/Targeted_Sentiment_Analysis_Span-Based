@@ -21,7 +21,8 @@ dataframe = pandas.read_csv("data/laptop14_train.txt", delimiter='####', header=
 new_index_list = dataframe['text'].str.len().sort_values().index
 dataframe = dataframe.reindex(new_index_list) # sorted dataframe by length of the sentence
 dataframe = dataframe.reset_index(drop=True)
-# tokenization
+
+# TOKENIZATION
 tokenized_dataset = dataframe['text'].apply((lambda x: tokenizer.encode(x, add_special_tokens=True)))#, max_length=100, truncation=True, padding=False''' )
 
 # RANDOM BATCH REORDERING
@@ -67,26 +68,6 @@ for batch in random_batches_list:
   input_ids.append(torch.tensor(padded_batch))
   attention_mask.append(torch.tensor(batch_attention_mask))
 
-# PADDING AND ATTENTION MASK WITHOUT SMART BATCHING
-
-#max_len = 0
-#for sentence in tokenized_dataset.values:
-#  if (len(sentence) > max_len):
-#    max_len = len(sentence)
-#print(max_len)
-
-#padded_tok_dataset = numpy.array([i + [0]*(max_len-len(i)) for i in tokenized_dataset.values]) # TO DO: UNDERSTAND
-#print(padded_tok_dataset)
-#print(numpy.array(padded_tok_dataset).shape)
-
-#attention_mask = numpy.where(padded_tok_dataset != 0, 1, 0)
-#print(attention_mask.shape)
-
-#input_ids = torch.tensor(padded_tok_dataset)  
-#input_ids = torch.tensor(input_ids)  
-#print(input_ids)
-#attention_mask = torch.tensor(attention_mask)
-#print(attention_mask)
 
 # TRAINING PART THAT MUST BE UNDERSTOOD AND CORRECTED
 
