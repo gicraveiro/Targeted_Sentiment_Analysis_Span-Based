@@ -58,23 +58,31 @@ while len(dynamic_dataframe) != 0:
 #print(dynamic_dataframe)
 #print(random_batches_list)
 
-padded = []
+
 # PAD AND ATTENTION MASK
+
+padded = []
+attention_mask = []
+
 for batch in random_batches_list:
   max_len = 0
   for sentence in batch:
     if (len(sentence) > max_len):
       max_len = len(sentence)
-      print(max_len)
+      #print(max_len)
   
   for sentence in batch:
     num_zeros = max_len - len(sentence)
     sentence = sentence + [0] * num_zeros
-    print(sentence)
-
+    #print(sentence)
     sentence_attention_mask = (len(sentence)*[1] + num_zeros*[0])
-    print(sentence_attention_mask)
+    #print(sentence_attention_mask)
 
+  padded.append(sentence)
+  attention_mask.append(sentence_attention_mask)
+
+#print(padded)
+#print(attention_mask)
 
 #max_len = 0
 #for sentence in tokenized_dataset.values:
