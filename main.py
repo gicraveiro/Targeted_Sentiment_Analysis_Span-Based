@@ -16,10 +16,21 @@ tokenizer = tokenizer_class.from_pretrained(pretrained_weights)
 model = model_class.from_pretrained(pretrained_weights)
 
 #dataframe = pandas.read_csv("data/laptop14_train.txt", sep=' ')
-dataframe_full = pandas.read_csv("data/laptop14_train.txt", delimiter='####', header=None)
-dataframe = dataframe_full[:2000]
+dataframe = pandas.read_csv("data/laptop14_train.txt", delimiter='####', header=None)
+#dataframe = dataframe_full[:2000]
+#print(dataframe)
 
+#dataframe tokenized dataset
 tokenized_dataset = dataframe[0].apply((lambda x: tokenizer.encode(x, add_special_tokens=True)))
+
+#list format tokenized dataset
+#tokenized_dataset = []
+#print(dataframe[0])
+#for sentence in dataframe[0]:
+#  print(sentence)
+#  tokenized_sentence = tokenizer.encode(sentence, add_special_tokens=True)
+#  tokenized_dataset.append(tokenized_sentence)
+
 #print(tokenized_dataset)
 #print(numpy.array(tokenized_dataset).shape)
 
@@ -27,6 +38,7 @@ max_len = 0
 for sentence in tokenized_dataset.values:
   if (len(sentence) > max_len):
     max_len = len(sentence)
+print(max_len)
 
 padded_tok_dataset = numpy.array([i + [0]*(max_len-len(i)) for i in tokenized_dataset.values]) # TO DO: UNDERSTAND
 #print(padded_tok_dataset)
