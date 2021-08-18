@@ -15,21 +15,25 @@ model_class, tokenizer_class, pretrained_weights = (transformers.DistilBertModel
 tokenizer = tokenizer_class.from_pretrained(pretrained_weights)
 model = model_class.from_pretrained(pretrained_weights)
 
-dataframe = pandas.read_csv("data/laptop14_train.txt", delimiter='####', header=None, names=['text','labels'])
+dataframe = pandas.read_csv("data/laptop14_train.txt", delimiter='####', header=None, names=['text','labels'],engine='python')
 
 #dataframe tokenized dataset
-max_len = 0
-for sentence in dataframe['text']:
-  if (len(sentence) > max_len):
-    max_len = len(sentence)
-    print(sentence)
-print(max_len)
-#print(dataframe['text'].str.len().sort_values())
-tokenized_dataset = dataframe['text'].apply((lambda x: tokenizer.encode(x, add_special_tokens=True''', max_length=100, truncation=True, padding=False''')))
+print(dataframe['text'].str.len().sort_values())
+print(dataframe['text'].str.len().sort_values().index)
+new_index_list = dataframe['text'].str.len().sort_values().index
+dataframe = dataframe.reindex(new_index_list) # sorted dataframe
+print(dataframe)
+print(dataframe['text'].str.len().sort_values())
+dataframe = dataframe.reset_index(drop=True)
+print(dataframe)
+tokenized_dataset = dataframe['text'].apply((lambda x: tokenizer.encode(x, add_special_tokens=True)))#, max_length=100, truncation=True, padding=False''' )
 
+print(tokenized_dataset[0])
+print(tokenized_dataset[3044])
+#print(tokenized_dataset['text'].str.len().sort_values())
 #list format tokenized dataset
 #tokenized_dataset = []
-#print(dataframe.values.len().sort_values())
+#print(.values.len().sort_values())
 #for sentence in dataframe[0]:
 #  print(sentence)
 #  tokenized_sentence = tokenizer.encode(sentence, add_special_tokens=True)
