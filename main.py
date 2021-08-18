@@ -15,13 +15,10 @@ model_class, tokenizer_class, pretrained_weights = (transformers.DistilBertModel
 tokenizer = tokenizer_class.from_pretrained(pretrained_weights)
 model = model_class.from_pretrained(pretrained_weights)
 
-#dataframe = pandas.read_csv("data/laptop14_train.txt", sep=' ')
-dataframe = pandas.read_csv("data/laptop14_train.txt", delimiter='####', header=None)
-#dataframe = dataframe_full[:2000]
-#print(dataframe)
+dataframe = pandas.read_csv("data/laptop14_train.txt", delimiter='####', header=None, names=['text','labels'])
 
 #dataframe tokenized dataset
-tokenized_dataset = dataframe[0].apply((lambda x: tokenizer.encode(x, add_special_tokens=True)))
+tokenized_dataset = dataframe['text'].apply((lambda x: tokenizer.encode(x, add_special_tokens=True)))
 
 #list format tokenized dataset
 #tokenized_dataset = []
@@ -40,8 +37,9 @@ for sentence in tokenized_dataset.values:
     max_len = len(sentence)
 print(max_len)
 
-unsorted_lengths = [len(x) for x in tokenized_dataset]
-print(unsorted_lengths)
+#unsorted_lengths = [len(x) for x in tokenized_dataset]
+#print(unsorted_lengths)
+tokenized_dataset.reindex(tokenized_dataset[0])
 
 padded_tok_dataset = numpy.array([i + [0]*(max_len-len(i)) for i in tokenized_dataset.values]) # TO DO: UNDERSTAND
 #print(padded_tok_dataset)
