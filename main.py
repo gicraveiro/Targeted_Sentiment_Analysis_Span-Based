@@ -3,6 +3,7 @@ import torch
 import transformers # pytorch transformers
 import pandas
 import numpy
+import random
 
 #code extracted from tutorial at http://jalammar.github.io/a-visual-guide-to-using-bert-for-the-first-time/
 model_class, tokenizer_class, pretrained_weights = (transformers.DistilBertModel, transformers.DistilBertTokenizer, 'distilbert-base-uncased')
@@ -37,10 +38,26 @@ tokenized_dataset = dataframe['text'].apply((lambda x: tokenizer.encode(x, add_s
 
 batch_size = 8
 dynamic_dataframe = tokenized_dataset.copy(deep=True) #copy of the dataframe to delete it parts
-print(dynamic_dataframe)
 
-while len(dynamic_dataframe) != 5:
-  dynamic_dataframe.drop([dynamic_dataframe.index[0] , dynamic_dataframe.index[4]], inplace=True)
+while len(dynamic_dataframe) != 0:
+  #print(len(dynamic_dataframe))
+  random_index = random.randint(0, len(dynamic_dataframe))
+  #if (batch_size > len(dynamic_dataframe)):
+  #  batch_size = len(dynamic_dataframe)
+  #random_index = random.randint(0, len(dynamic_dataframe))
+  if (random_index + batch_size >= len(dynamic_dataframe)):
+    random_index = random_index - (random_index + batch_size - len(dynamic_dataframe) +1)
+    if( random_index < 0):
+      random_index = 0
+      batch_size = len(dynamic_dataframe)
+  #print(random_index, random_index+batch_size, len(dynamic_dataframe))
+  #print(random_index)
+  #batch = dynamic_dataframe[random_index, random_index+batch_size]
+  #print(batch)
+  #dynamic_dataframe[random_index:random_index+batch_size] # batch
+  #print(batch)
+  dynamic_dataframe.drop(dynamic_dataframe.index[random_index:random_index+batch_size], inplace=True)
+  
 print(dynamic_dataframe)
 # PAD
 
