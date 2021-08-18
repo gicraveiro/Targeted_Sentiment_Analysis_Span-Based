@@ -38,6 +38,7 @@ tokenized_dataset = dataframe['text'].apply((lambda x: tokenizer.encode(x, add_s
 
 batch_size = 8
 dynamic_dataframe = tokenized_dataset.copy(deep=True) #copy of the dataframe to delete it parts
+random_batches_list = []
 
 while len(dynamic_dataframe) != 0:
   random_index = random.randint(0, len(dynamic_dataframe))
@@ -46,9 +47,15 @@ while len(dynamic_dataframe) != 0:
     if( random_index < 0):
       random_index = 0
       batch_size = len(dynamic_dataframe)
+      
+  batch = dynamic_dataframe[random_index:(random_index+batch_size)]
+  for sentence in batch:
+    random_batches_list.append(sentence)
+
   dynamic_dataframe.drop(dynamic_dataframe.index[random_index:random_index+batch_size], inplace=True)
   
-print(dynamic_dataframe)
+#print(dynamic_dataframe)
+#print(random_batches_list)
 # PAD
 
 #max_len = 0
