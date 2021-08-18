@@ -24,17 +24,7 @@ dataframe = dataframe.reset_index(drop=True)
 # tokenization
 tokenized_dataset = dataframe['text'].apply((lambda x: tokenizer.encode(x, add_special_tokens=True)))#, max_length=100, truncation=True, padding=False''' )
 
-#list format tokenized dataset - alternative way
-#tokenized_dataset = []
-#print(.values.len().sort_values())
-#for sentence in dataframe[0]:
-#  print(sentence)
-#  tokenized_sentence = tokenizer.encode(sentence, add_special_tokens=True)
-#  tokenized_dataset.append(tokenized_sentence)
-
-# DEBUG PRINTS
-#print(tokenized_dataset)
-#print(numpy.array(tokenized_dataset).shape)
+# RANDOM BATCH REORDERING
 
 batch_size = 8
 dynamic_dataframe = tokenized_dataset.copy(deep=True) #copy of the dataframe to delete it parts
@@ -50,21 +40,13 @@ while len(dynamic_dataframe) != 0:
 
   batch = dynamic_dataframe[random_index:(random_index+batch_size)]
   random_batches_list.append(batch)
-  #for sentence in batch:
-  #  random_batches_list.append(sentence)
 
   dynamic_dataframe.drop(dynamic_dataframe.index[random_index:random_index+batch_size], inplace=True)
-  
-#print(dynamic_dataframe)
-#print(random_batches_list)
 
 # PADDING AND ATTENTION MASK WITH SMART BATCHING
 
-#padded_tok_dataset = []
 attention_mask = []
-#pytorch_input_ids = []
 input_ids = []
-#pytorch_attention_mask = []
 
 for batch in random_batches_list:
   max_len = 0
@@ -74,30 +56,16 @@ for batch in random_batches_list:
 
     if (len(sentence) > max_len):
       max_len = len(sentence)
-      #print(max_len)
   
   for sentence in batch:
     num_zeros = max_len - len(sentence)
- #   print(num_zeros, len(sentence), len(sentence) +num_zeros)
-    
-    #print(sentence)
     sentence_attention_mask = (len(sentence)*[1] + num_zeros*[0])
     sentence = sentence + [0] * num_zeros
-    #print(sentence_attention_mask)
     padded_batch.append(sentence)
     batch_attention_mask.append(sentence_attention_mask)
 
-  #padded_tok_dataset.append(padded_batch)
-  #attention_mask.append(batch_attention_mask)
-#  print(batch_attention_mask,'\n',len(batch_attention_mask))
-#  print(padded_batch,'\n',len(padded_batch))
-#  input_ids.append(torch.tensor(padded_batch))
-#  attention_mask.append(torch.tensor(batch_attention_mask))
-
-
-#print(padded)
-#print(attention_mask)
-
+  input_ids.append(torch.tensor(padded_batch))
+  attention_mask.append(torch.tensor(batch_attention_mask))
 
 # PADDING AND ATTENTION MASK WITHOUT SMART BATCHING
 
@@ -115,9 +83,9 @@ for batch in random_batches_list:
 #print(attention_mask.shape)
 
 #input_ids = torch.tensor(padded_tok_dataset)  
-input_ids = torch.tensor(input_ids)  
+#input_ids = torch.tensor(input_ids)  
 #print(input_ids)
-attention_mask = torch.tensor(attention_mask)
+#attention_mask = torch.tensor(attention_mask)
 #print(attention_mask)
 
 # TRAINING PART THAT MUST BE UNDERSTOOD AND CORRECTED
