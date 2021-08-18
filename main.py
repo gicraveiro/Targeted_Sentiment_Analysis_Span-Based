@@ -37,9 +37,17 @@ for sentence in tokenized_dataset.values:
     max_len = len(sentence)
 print(max_len)
 
-#unsorted_lengths = [len(x) for x in tokenized_dataset]
+#unsorted_lengths = [len(x) for x in tokenized_dataset].sort_values()
+#print(type(tokenized_dataset))
+#print(len(tokenized_dataset[0]))
 #print(unsorted_lengths)
-tokenized_dataset.reindex(tokenized_dataset[0])
+#print(len(tokenized_dataset[0]))
+#print(len(tokenized_dataset[0]))
+print(tokenized_dataset.name.str)
+#tokenized_dataset.reindex(tokenized_dataset.name.len().sort_values().index)
+#tokenized_dataset.sort_values(key=len(x))
+#sorted_lengths = [len(x) for x in tokenized_dataset]
+#print(sorted_lengths)
 
 padded_tok_dataset = numpy.array([i + [0]*(max_len-len(i)) for i in tokenized_dataset.values]) # TO DO: UNDERSTAND
 #print(padded_tok_dataset)
