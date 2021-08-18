@@ -4,27 +4,26 @@ import transformers # pytorch transformers
 import pandas
 import numpy
 
-#file = open("data/laptop14_test.txt")
-#laptop_train = open("data/laptop14_train.txt")
-
 #code extracted from tutorial at http://jalammar.github.io/a-visual-guide-to-using-bert-for-the-first-time/
 model_class, tokenizer_class, pretrained_weights = (transformers.DistilBertModel, transformers.DistilBertTokenizer, 'distilbert-base-uncased')
 #model_class, tokenizer_class, pretrained_weights = (transformers.BertModel, transformers.BertTokenizer, 'bert-base-uncased')
 
 # Load pretrained model/tokenizer
 tokenizer = tokenizer_class.from_pretrained(pretrained_weights)
-model = model_class.from_pretrained(pretrained_weights)
+model = model_class.from_pretrained(pretrained_weights) # TO DO: FIGURE OUT THE RIGHT ONE HERE
 
+# Creates a table separating sentences from associated token tags
 dataframe = pandas.read_csv("data/laptop14_train.txt", delimiter='####', header=None, names=['text','labels'],engine='python')
 
-#dataframe tokenized dataset
+# Sorts table and transforms each word to the code of the token
 
 new_index_list = dataframe['text'].str.len().sort_values().index
-dataframe = dataframe.reindex(new_index_list) # sorted dataframe
+dataframe = dataframe.reindex(new_index_list) # sorted dataframe by length of the sentence
 dataframe = dataframe.reset_index(drop=True)
+# tokenization
 tokenized_dataset = dataframe['text'].apply((lambda x: tokenizer.encode(x, add_special_tokens=True)))#, max_length=100, truncation=True, padding=False''' )
 
-#list format tokenized dataset
+#list format tokenized dataset - alternative way
 #tokenized_dataset = []
 #print(.values.len().sort_values())
 #for sentence in dataframe[0]:
@@ -32,8 +31,12 @@ tokenized_dataset = dataframe['text'].apply((lambda x: tokenizer.encode(x, add_s
 #  tokenized_sentence = tokenizer.encode(sentence, add_special_tokens=True)
 #  tokenized_dataset.append(tokenized_sentence)
 
+# DEBUG PRINTS
 #print(tokenized_dataset)
 #print(numpy.array(tokenized_dataset).shape)
+
+batch_size = 8
+# PAD
 
 #max_len = 0
 #for sentence in tokenized_dataset.values:
@@ -45,6 +48,8 @@ tokenized_dataset = dataframe['text'].apply((lambda x: tokenizer.encode(x, add_s
 #print(padded_tok_dataset)
 #print(numpy.array(padded_tok_dataset).shape)
 
+# ATTENTION MASK
+
 #attention_mask = numpy.where(padded_tok_dataset != 0, 1, 0)
 #print(attention_mask.shape)
 
@@ -52,6 +57,9 @@ tokenized_dataset = dataframe['text'].apply((lambda x: tokenizer.encode(x, add_s
 #print(input_ids)
 #attention_mask = torch.tensor(attention_mask)
 #print(attention_mask)
+
+# TRAINING PART THAT MUST BE UNDERSTOOD AND CORRECTED
+
 #with torch.no_grad():
 #  last_hidden_states = model(input_ids, attention_mask=attention_mask)
 #print(last_hidden_states)
