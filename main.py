@@ -40,22 +40,12 @@ batch_size = 8
 dynamic_dataframe = tokenized_dataset.copy(deep=True) #copy of the dataframe to delete it parts
 
 while len(dynamic_dataframe) != 0:
-  #print(len(dynamic_dataframe))
   random_index = random.randint(0, len(dynamic_dataframe))
-  #if (batch_size > len(dynamic_dataframe)):
-  #  batch_size = len(dynamic_dataframe)
-  #random_index = random.randint(0, len(dynamic_dataframe))
   if (random_index + batch_size >= len(dynamic_dataframe)):
     random_index = random_index - (random_index + batch_size - len(dynamic_dataframe) +1)
     if( random_index < 0):
       random_index = 0
       batch_size = len(dynamic_dataframe)
-  #print(random_index, random_index+batch_size, len(dynamic_dataframe))
-  #print(random_index)
-  #batch = dynamic_dataframe[random_index, random_index+batch_size]
-  #print(batch)
-  #dynamic_dataframe[random_index:random_index+batch_size] # batch
-  #print(batch)
   dynamic_dataframe.drop(dynamic_dataframe.index[random_index:random_index+batch_size], inplace=True)
   
 print(dynamic_dataframe)
