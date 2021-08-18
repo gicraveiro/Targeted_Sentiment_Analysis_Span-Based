@@ -4,7 +4,7 @@ import transformers # pytorch transformers
 import pandas
 import numpy
 import random
-from reused import BertConfig
+from reused import BertConfig, BertForSpanAspectExtraction
 
 
 
@@ -63,7 +63,7 @@ model_class, tokenizer_class, pretrained_weights = (transformers.DistilBertModel
 
 # Load pretrained model/tokenizer
 tokenizer = tokenizer_class.from_pretrained(pretrained_weights)
-model = model_class.from_pretrained(pretrained_weights) # TO DO: FIGURE OUT THE RIGHT ONE HERE
+#model = model_class.from_pretrained(pretrained_weights) # TO DO: FIGURE OUT THE RIGHT ONE HERE
 
 # Creates a table separating sentences from associated token tags
 dataframe = pandas.read_csv("data/laptop14_train.txt", delimiter='####', header=None, names=['text','labels'],engine='python')
@@ -81,6 +81,37 @@ input_ids, attention_mask = restart_sampling()
 
 bert_config = BertConfig.from_json_file("bert/bert_config.json") # include bert directory ONLY in local repository
 
+# tokenization as included in the paper code...
+#tokenizer = tokenizer.FullTokenizer(vocab_file="bert/vocab_file.txt", do_lower_case=True)
+model = BertForSpanAspectExtraction(bert_config)
+# verificação de caminho válido era aqui
+#model = bert_load_state_dict(model, torch.load("bert/pytorch_model.bin", map_location='cpu')) # TO DO: EXTRACT FUNCTION FROM PAPER CODE
+#print("Loading model from pretrained checkpoint: {}".format("bert/pytorch_model.bin"))
+device = "cpu"
+model.to(device)
+
+print("***** Preparing data *****")
+train_dataloader, num_train_steps = None, None
+eval_examples, eval_features, eval_dataloader = None, None, None
+train_batch_size = 8 
+print("***** Preparing training *****")
+#train_dataloader, num_train_steps = read_train_data(args, tokenizer, logger)
+print("***** Preparing evaluation *****")
+#eval_examples, eval_features, eval_dataloader = read_eval_data(args, tokenizer, logger)
+print("***** Preparing optimizer *****")
+#    optimizer, param_optimizer = prepare_optimizer(args, model, num_train_steps)
+
+print("***** Running training *****")
+best_f1 = 0
+save_checkpoints_steps = int(num_train_steps / (5 * 3)) # 3 = num_train_epochs
+start_save_steps = int(num_train_steps * 0.5) # 0.5 = save proportion
+model.train()
+for epoch in range(3):
+            print("***** Epoch: {} *****".format(epoch+1))
+            global_step, model, best_f1 = run_train_epoch(args, global_step, model, param_optimizer,
+                                                           train_dataloader, eval_examples, eval_features, eval_dataloader,
+                                                           optimizer, 0, device, logger, log_path, save_path,
+                                                           save_checkpoints_steps, start_save_steps, best_f1) #n_gpu = 0
 
 #print(input_ids)
 #print(attention_mask)
