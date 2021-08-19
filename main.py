@@ -12,17 +12,18 @@ from reused import BertConfig, BertForSpanAspectExtraction, run_train_epoch, rea
 def restart_sampling():
   # TOKENIZATION
   tokenized_dataset = dataframe['text'].apply((lambda x: tokenizer.encode(x, add_special_tokens=True)))#, max_length=100, truncation=True, padding=False''' )
-  #print(dataframe['labels'])
   labels_list = dataframe['labels'].to_list()
-  #print(labels_list)
-  #tokenized_dataset['labels'] = labels_list
   tokenized_dataframe = tokenized_dataset.to_frame()
   tokenized_dataframe.insert(1, "Labels", labels_list, True)
-  #print(tokenized_dataset)
+
   # RANDOM BATCH REORDERING
 
   batch_size = 8
-  dynamic_dataframe = tokenized_dataset.copy(deep=True) #copy of the dataframe to delete it parts
+  dynamic_dataframe = tokenized_dataset.copy(deep=True) #copy of the sentences column of the dataset to delete it parts
+  dynamic_labels = dataframe['labels']
+  print(dynamic_labels, type(dynamic_labels))
+  #dynamic_labels = tokenized_dataframe['labels'].copy(deep=True)
+  #print(dynamic_labels)
   random_batches_list = []
 
   while len(dynamic_dataframe) != 0:
