@@ -4,7 +4,7 @@ import transformers # pytorch transformers
 import pandas
 import numpy
 import random
-from reused import BertConfig, BertForSpanAspectExtraction
+from reused import BertConfig, BertForSpanAspectExtraction, run_train_epoch, read_eval_data, read_train_data, prepare_optimizer
 
 
 
@@ -95,11 +95,11 @@ train_dataloader, num_train_steps = None, None
 eval_examples, eval_features, eval_dataloader = None, None, None
 train_batch_size = 8 
 print("***** Preparing training *****")
-#train_dataloader, num_train_steps = read_train_data(args, tokenizer, logger)
+train_dataloader, num_train_steps = read_train_data(tokenizer)
 print("***** Preparing evaluation *****")
-#eval_examples, eval_features, eval_dataloader = read_eval_data(args, tokenizer, logger)
+eval_examples, eval_features, eval_dataloader = read_eval_data(tokenizer)
 print("***** Preparing optimizer *****")
-#    optimizer, param_optimizer = prepare_optimizer(args, model, num_train_steps)
+optimizer, param_optimizer = prepare_optimizer(model, num_train_steps)
 
 print("***** Running training *****")
 best_f1 = 0
@@ -108,9 +108,9 @@ start_save_steps = int(num_train_steps * 0.5) # 0.5 = save proportion
 model.train()
 for epoch in range(3):
             print("***** Epoch: {} *****".format(epoch+1))
-            global_step, model, best_f1 = run_train_epoch(args, global_step, model, param_optimizer,
+            global_step, model, best_f1 = run_train_epoch(global_step, model, param_optimizer,
                                                            train_dataloader, eval_examples, eval_features, eval_dataloader,
-                                                           optimizer, 0, device, logger, log_path, save_path,
+                                                           optimizer, 0, device, 'out/extract/01/performance.txt', 'out/extract/01/checkpoint.pth.tar',
                                                            save_checkpoints_steps, start_save_steps, best_f1) #n_gpu = 0
 
 #print(input_ids)
