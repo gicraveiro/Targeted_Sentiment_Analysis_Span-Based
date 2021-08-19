@@ -54,7 +54,7 @@ def restart_sampling():
   start_positions = []
   end_positions = []
 
-  for batch,label in zip(random_batches_list,random_labels_list):
+  for batch,labels in zip(random_batches_list,random_labels_list):
     max_len = 0
     for sentence in batch:
       padded_batch = []
@@ -65,25 +65,32 @@ def restart_sampling():
       if (len(sentence) > max_len):
         max_len = len(sentence)
     
-    for sentence in zip(batch,label):
+    for sentence, sent_label in zip(batch,labels):
       sentence_start_positions = []
       sentence_end_positions = []
       num_zeros = max_len - len(sentence)
       sentence_attention_mask = (len(sentence)*[1] + num_zeros*[0])
-      for index,token in enumerate(label):
+      sent_label_list = sent_label.split()
+      for index,token in enumerate(sent_label_list):
+        #print(sent_label,"\ntok\n", token)
         tag = token.split("=")
-        tag = tag[1]
         print(tag)
+        tag = tag[1]
+        #print("tag",tag, '\n')
+        print(index-1, index+1, len(sent_label_list))
         
-        if (tag != 'O' and (index-1 < 0 or token[index-1].split("=")[1] == 'O')):
-          sentence_start_positions += 1
+        if (tag != 'O' and (index-1 < 0 or sent_label_list[index-1].split("=")[1] == 'O')):
+          sentence_start_positions += [1]
         else:
-          sentence_start_positions += 0
-        if (tag != 'O' and (index+1 > len(label) or token[index+1].split("=")[1] == 'O')):
-          sentence_end_positions += 1
+          sentence_start_positions += [0]
+        
+        if (tag != 'O' and (index+1 > len(sent_label_list) or sent_label_list[index+1].split("=")[1] == 'O')):
+          sentence_end_positions += [1]
         else:
-          sentence_end_positions += 0
+          sentence_end_positions += [0]
       
+      print(sentence_start_positions,'\n',sentence_end_positions)
+
       sentence = sentence + [0] * num_zeros
       padded_batch.append(sentence)
       batch_attention_mask.append(sentence_attention_mask)
