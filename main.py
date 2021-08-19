@@ -21,10 +21,11 @@ def restart_sampling():
   batch_size = 8
   dynamic_dataframe = tokenized_dataset.copy(deep=True) #copy of the sentences column of the dataset to delete it parts
   dynamic_labels = dataframe['labels']
-  print(dynamic_labels, type(dynamic_labels))
+  #print(dynamic_labels, type(dynamic_labels))
   #dynamic_labels = tokenized_dataframe['labels'].copy(deep=True)
   #print(dynamic_labels)
   random_batches_list = []
+  random_labels_list = []
 
   while len(dynamic_dataframe) != 0:
     random_index = random.randint(0, len(dynamic_dataframe))
@@ -35,11 +36,16 @@ def restart_sampling():
         batch_size = len(dynamic_dataframe)
 
     batch = dynamic_dataframe[random_index:(random_index+batch_size)]
+    batch_labels = dynamic_labels[random_index:(random_index+batch_size)]
     random_batches_list.append(batch)
+    random_labels_list.append(batch_labels)
 
     dynamic_dataframe.drop(dynamic_dataframe.index[random_index:random_index+batch_size], inplace=True)
+    dynamic_labels.drop(dynamic_labels.index[random_index:random_index+batch_size], inplace=True)
 
-  print(dynamic_dataframe)
+    #print(batch, batch_labels)
+  #print(dynamic_dataframe)
+  #print(dynamic_labels)
 
   # PADDING AND ATTENTION MASK WITH SMART BATCHING
 
