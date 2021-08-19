@@ -12,7 +12,13 @@ from reused import BertConfig, BertForSpanAspectExtraction, run_train_epoch, rea
 def restart_sampling():
   # TOKENIZATION
   tokenized_dataset = dataframe['text'].apply((lambda x: tokenizer.encode(x, add_special_tokens=True)))#, max_length=100, truncation=True, padding=False''' )
-
+  #print(dataframe['labels'])
+  labels_list = dataframe['labels'].to_list()
+  #print(labels_list)
+  #tokenized_dataset['labels'] = labels_list
+  tokenized_dataframe = tokenized_dataset.to_frame()
+  tokenized_dataframe.insert(1, "Labels", labels_list, True)
+  #print(tokenized_dataset)
   # RANDOM BATCH REORDERING
 
   batch_size = 8
@@ -32,10 +38,14 @@ def restart_sampling():
 
     dynamic_dataframe.drop(dynamic_dataframe.index[random_index:random_index+batch_size], inplace=True)
 
+  print(dynamic_dataframe)
+
   # PADDING AND ATTENTION MASK WITH SMART BATCHING
 
   attention_mask = []
   input_ids = []
+  start_positions = []
+  end_positions = []
 
   for batch in random_batches_list:
     max_len = 0
@@ -67,9 +77,9 @@ tokenizer = tokenizer_class.from_pretrained(pretrained_weights)
 
 # Creates a table separating sentences from associated token tags
 dataframe = pandas.read_csv("data/laptop14_train.txt", delimiter='####', header=None, names=['text','labels'],engine='python')
-print(dataframe['labels'][0])
+#print(dataframe['labels'][0])
 tokenized_dataset = dataframe['text'].apply((lambda x: tokenizer.encode(x, add_special_tokens=True)))
-print(tokenized_dataset[0])
+#print(tokenized_dataset[0])
 # Sorts table and transforms each word to the code of the token
 
 new_index_list = dataframe['text'].str.len().sort_values().index
@@ -77,7 +87,7 @@ dataframe = dataframe.reindex(new_index_list) # sorted dataframe by length of th
 dataframe = dataframe.reset_index(drop=True)
 
 input_ids, attention_mask = restart_sampling()
-
+'''
 
 # REUSED FROM PAPER 
 
@@ -111,6 +121,8 @@ save_checkpoints_steps = int(num_train_steps / (5 * 3)) # 3 = num_train_epochs
 start_save_steps = int(num_train_steps * 0.5) # 0.5 = save proportion
 model.train()
 global_step = 0
+'''
+
 #for epoch in range(3):
 #  print("***** Epoch: {} *****".format(epoch+1))
 #  global_step, model, best_f1 = run_train_epoch(global_step, model, param_optimizer, train_dataloader, eval_examples, eval_features, eval_dataloader, optimizer, 0, device, 'out/extract/01/performance.txt', 'out/extract/01/checkpoint.pth.tar', save_checkpoints_steps, start_save_steps, best_f1) #n_gpu = 0
