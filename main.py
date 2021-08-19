@@ -54,26 +54,48 @@ def restart_sampling():
   start_positions = []
   end_positions = []
 
-  for batch in random_batches_list:
+  for batch,label in zip(random_batches_list,random_labels_list):
     max_len = 0
     for sentence in batch:
       padded_batch = []
       batch_attention_mask = []
+      batch_start_positions = []
+      batch_end_positions = []
 
       if (len(sentence) > max_len):
         max_len = len(sentence)
     
-    for sentence in batch:
+    for sentence in zip(batch,label):
+      sentence_start_positions = []
+      sentence_end_positions = []
       num_zeros = max_len - len(sentence)
       sentence_attention_mask = (len(sentence)*[1] + num_zeros*[0])
+      for index,token in enumerate(label):
+        tag = token.split("=")
+        tag = tag[1]
+        print(tag)
+        
+        if (tag != 'O' and (index-1 < 0 or token[index-1].split("=")[1] == 'O')):
+          sentence_start_positions += 1
+        else:
+          sentence_start_positions += 0
+        if (tag != 'O' and (index+1 > len(label) or token[index+1].split("=")[1] == 'O')):
+          sentence_end_positions += 1
+        else:
+          sentence_end_positions += 0
+      
       sentence = sentence + [0] * num_zeros
       padded_batch.append(sentence)
       batch_attention_mask.append(sentence_attention_mask)
+      batch_start_positions.append(sentence_start_positions)
+      batch_end_positions.append(sentence_end_positions)
 
     input_ids.append(torch.tensor(padded_batch))
     attention_mask.append(torch.tensor(batch_attention_mask))
+    start_positions.append(torch.tensor(batch_start_positions))
+    end_positions.append(torch.tensor(batch_end_positions))
 
-  return(input_ids,attention_mask)
+  return(input_ids,attention_mask, start_positions, end_positions)
 
 model_class, tokenizer_class, pretrained_weights = (transformers.DistilBertModel, transformers.DistilBertTokenizer, 'distilbert-base-uncased')
 #model_class, tokenizer_class, pretrained_weights = (transformers.BertModel, transformers.BertTokenizer, 'bert-base-uncased')
@@ -93,7 +115,7 @@ new_index_list = dataframe['text'].str.len().sort_values().index
 dataframe = dataframe.reindex(new_index_list) # sorted dataframe by length of the sentence
 dataframe = dataframe.reset_index(drop=True)
 
-input_ids, attention_mask = restart_sampling()
+input_ids, attention_mask, start_positions, end_positions = restart_sampling()
 '''
 
 # REUSED FROM PAPER 
