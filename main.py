@@ -66,18 +66,16 @@ def restart_sampling():
         max_len = len(sentence)
     
     for sentence, sent_label in zip(batch,labels):
-      sentence_start_positions = []
-      sentence_end_positions = []
+      sentence_start_positions = [0]
+      sentence_end_positions = [0]
+      print(sentence_start_positions, sentence_end_positions)
       num_zeros = max_len - len(sentence)
       sentence_attention_mask = (len(sentence)*[1] + num_zeros*[0])
       sent_label_list = sent_label.split()
+      print(sent_label_list)
       for index,token in enumerate(sent_label_list):
-        #print(sent_label,"\ntok\n", token)
         tag = token.split("=")
-        print(tag)
         tag = tag[1]
-        #print("tag",tag, '\n')
-        print(index-1, index+1, len(sent_label_list))
         
         if (tag != 'O' and (index-1 < 0 or sent_label_list[index-1].split("=")[1] == 'O')):
           sentence_start_positions += [1]
@@ -89,14 +87,16 @@ def restart_sampling():
         else:
           sentence_end_positions += [0]
       
-      print(sentence_start_positions,'\n',sentence_end_positions)
-
+      sentence_start_positions += (num_zeros*[0])+[0] # initial and final token must be added as extra zeros eve beyond the zeros that represent absence of tokens
+      sentence_end_positions += (num_zeros*[0])+[0]
       sentence = sentence + [0] * num_zeros
+      print(sentence, attention_mask, sentence_start_positions, sentence_end_positions)
       padded_batch.append(sentence)
       batch_attention_mask.append(sentence_attention_mask)
       batch_start_positions.append(sentence_start_positions)
       batch_end_positions.append(sentence_end_positions)
 
+    
     input_ids.append(torch.tensor(padded_batch))
     attention_mask.append(torch.tensor(batch_attention_mask))
     start_positions.append(torch.tensor(batch_start_positions))
