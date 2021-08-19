@@ -25,7 +25,7 @@ import torch.nn as nn
 from torch.nn import CrossEntropyLoss
 from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
-from torch.utils.data.distributed import DistributedSampler
+#from torch.utils.data.distributed import DistributedSampler
 
 is_python3 = sys.version_info.major == 3
 if is_python3:
@@ -334,16 +334,16 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, verbose_lo
         assert len(label_masks) == max_term_num
 
         if example_index < 1 and verbose_logging:
-            logger.info("*** Example ***")
-            logger.info("unique_id: %s" % (unique_id))
-            logger.info("example_index: %s" % (example_index))
-            logger.info("tokens: {}".format(tokens))
-            logger.info("token_to_orig_map: {}".format(token_to_orig_map))
-            logger.info("start_indexes: {}".format(start_indexes))
-            logger.info("end_indexes: {}".format(end_indexes))
-            logger.info("bio_labels: {}".format(bio_labels))
-            logger.info("polarity_positions: {}".format(polarity_positions))
-            logger.info("polarity_labels: {}".format(polarity_labels))
+            print("*** Example ***")
+            print("unique_id: %s" % (unique_id))
+            print("example_index: %s" % (example_index))
+            print("tokens: {}".format(tokens))
+            print("token_to_orig_map: {}".format(token_to_orig_map))
+            print("start_indexes: {}".format(start_indexes))
+            print("end_indexes: {}".format(end_indexes))
+            print("bio_labels: {}".format(bio_labels))
+            print("polarity_positions: {}".format(polarity_positions))
+            print("polarity_labels: {}".format(polarity_labels))
 
         features.append(
             InputFeatures(
@@ -363,9 +363,9 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, verbose_lo
                 polarity_labels=polarity_labels,
                 label_masks=label_masks))
         unique_id += 1
-    logger.info("Max sentence length: {}".format(max_sent_length))
-    logger.info("Max term length: {}".format(max_term_length))
-    logger.info("Max term num: {}".format(max_term_num))
+    #print("Max sentence length: {}".format(max_sent_length))
+    #print("Max term length: {}".format(max_term_length))
+    #print("Max term num: {}".format(max_term_num))
     return features
 
 def read_train_data(tokenizer):
@@ -387,6 +387,10 @@ def read_train_data(tokenizer):
     all_segment_ids = torch.tensor([f.segment_ids for f in train_features], dtype=torch.long)
     all_start_positions = torch.tensor([f.start_positions for f in train_features], dtype=torch.long)
     all_end_positions = torch.tensor([f.end_positions for f in train_features], dtype=torch.long)
+    print("input ids",all_input_ids[0],"\n")
+    print("segment ids", all_segment_ids[0], "\n")
+    print("start positions", all_start_positions[0], "\n")
+    print("end positions", all_end_positions[0], "\n")
 
     train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_start_positions, all_end_positions)
    
@@ -395,7 +399,7 @@ def read_train_data(tokenizer):
     train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=8)
     return train_dataloader, num_train_steps
 
-def read_eval_data(args, tokenizer):
+def read_eval_data(tokenizer):
     eval_path = 'data/laptop14_test.txt'#os.path.join(args.data_dir, args.predict_file)
     eval_set = read_absa_data(eval_path)
     eval_examples = convert_absa_data(dataset=eval_set, verbose_logging=False)
@@ -411,11 +415,11 @@ def read_eval_data(args, tokenizer):
     all_segment_ids = torch.tensor([f.segment_ids for f in eval_features], dtype=torch.long)
     all_example_index = torch.arange(all_input_ids.size(0), dtype=torch.long)
     eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_example_index)
-    if args.local_rank == -1:
-        eval_sampler = SequentialSampler(eval_data)
-    else:
-        eval_sampler = DistributedSampler(eval_data)
-    eval_dataloader = DataLoader(eval_data, sampler=eval_sampler, batch_size=args.predict_batch_size)
+    #if args.local_rank == -1:
+    eval_sampler = SequentialSampler(eval_data)
+    #else:
+    #    eval_sampler = DistributedSampler(eval_data)
+    eval_dataloader = DataLoader(eval_data, sampler=eval_sampler, batch_size=8) # args.predict_batch_size
     return eval_examples, eval_features, eval_dataloader
 
 def prepare_optimizer(model, num_train_steps):
@@ -431,16 +435,6 @@ def prepare_optimizer(model, num_train_steps):
                             t_total=num_train_steps)
     return optimizer, param_optimizer
 
-def post_process_loss(args, n_gpu, loss):
-    if n_gpu > 1:
-        loss = loss.mean()  # mean() to average on multi-gpu.
-    if args.fp16 and args.loss_scale != 1.0:
-        # rescale loss for fp16 training
-        # see https://docs.nvidia.com/deeplearning/sdk/mixed-precision-training/index.html
-        loss = loss * args.loss_scale
-    if args.gradient_accumulation_steps > 1:
-        loss = loss / args.gradient_accumulation_steps
-    return loss
 
 def copy_optimizer_params_to_model(named_params_model, named_params_optimizer):
     """ Utility function for optimize_on_cpu and 16-bits training.
@@ -731,7 +725,7 @@ def get_final_text(pred_text, orig_text, do_lower_case, verbose_logging=False, l
     start_position = tok_text.find(pred_text)
     if start_position == -1:
         if verbose_logging:
-            logger.info(
+            print(
                 "Unable to find text: '%s' in '%s'" % (pred_text, orig_text))
         return orig_text
     end_position = start_position + len(pred_text) - 1
@@ -741,7 +735,7 @@ def get_final_text(pred_text, orig_text, do_lower_case, verbose_logging=False, l
 
     if len(orig_ns_text) != len(tok_ns_text):
         if verbose_logging:
-            logger.info("Length not equal after stripping spaces: '%s' vs '%s'",
+            print("Length not equal after stripping spaces: '%s' vs '%s'",
                             orig_ns_text, tok_ns_text)
         return orig_text
 
@@ -759,7 +753,7 @@ def get_final_text(pred_text, orig_text, do_lower_case, verbose_logging=False, l
 
     if orig_start_position is None:
         if verbose_logging:
-            logger.info("Couldn't map start position")
+            print("Couldn't map start position")
         return orig_text
 
     orig_end_position = None
@@ -770,7 +764,7 @@ def get_final_text(pred_text, orig_text, do_lower_case, verbose_logging=False, l
 
     if orig_end_position is None:
         if verbose_logging:
-            logger.info("Couldn't map end position")
+            print("Couldn't map end position")
         return orig_text
 
     output_text = orig_text[orig_start_position:(orig_end_position + 1)]
@@ -970,7 +964,7 @@ def eval_aspect_extract(all_examples, all_features, all_results, do_lower_case, 
 
     return {'p': p, 'r': r, 'f1': f1, 'common': common, 'retrieved': retrieved, 'relevant': relevant}, all_nbest_json
 
-def evaluate(args, model, device, eval_examples, eval_features, eval_dataloader, logger, write_pred=False, do_pipeline=False):
+def evaluate(model, device, eval_examples, eval_features, eval_dataloader, write_pred=False, do_pipeline=False):
     all_results = []
     for batch in eval_dataloader:
         batch = tuple(t.to(device) for t in batch)
@@ -988,11 +982,11 @@ def evaluate(args, model, device, eval_examples, eval_features, eval_dataloader,
             batch_results.append(RawSpanResult(unique_id=unique_id, start_logits=start_logits, end_logits=end_logits))
 
         span_starts, span_ends, _, label_masks = span_annotate_candidates(eval_examples, batch_features, batch_results,
-                                                                          args.filter_type, False,
-                                                                          args.use_heuristics, args.use_nms,
-                                                                          args.logit_threshold, args.n_best_size,
-                                                                          args.max_answer_length, args.do_lower_case,
-                                                                          args.verbose_logging, logger)
+                                                                          'f1', False,
+                                                                          True, True,
+                                                                          7.5, 20,
+                                                                          12, True,
+                                                                          False,)
 
         for j, example_index in enumerate(example_indices):
             start_indexes = span_starts[j]
@@ -1004,58 +998,52 @@ def evaluate(args, model, device, eval_examples, eval_features, eval_dataloader,
                                               end_indexes=end_indexes, cls_pred=None, span_masks=span_masks))
 
     metrics, all_nbest_json = eval_aspect_extract(eval_examples, eval_features, all_results,
-                                                  args.do_lower_case, args.verbose_logging, logger)
+                                                  True, False)
     if write_pred:
         output_file = 'out/extract/01/predictions.json'#os.path.join(args.output_dir, "predictions.json")
         with open(output_file, "w") as writer:
             writer.write(json.dumps(all_nbest_json, indent=4) + "\n")
-        logger.info("Writing predictions to: %s" % (output_file))
+        print("Writing predictions to: %s" % (output_file))
     if do_pipeline:
         output_file =  'out/extract/01/extraction_results.pkl'#os.path.join(args.output_dir, "extraction_results.pkl")
         pickle.dump(all_results, open(output_file, 'wb'))
     return metrics
 
-def run_train_epoch(args, global_step, model, param_optimizer, train_dataloader,
+def run_train_epoch(global_step, model, param_optimizer, train_dataloader,
                     eval_examples, eval_features, eval_dataloader,
-                    optimizer, n_gpu, device, logger, log_path, save_path,
+                    optimizer, n_gpu, device, log_path, save_path,
                     save_checkpoints_steps, start_save_steps, best_f1):
     running_loss, count = 0.0, 0
     for step, batch in enumerate(train_dataloader):
-        if n_gpu == 1:
-            batch = tuple(t.to(device) for t in batch)  # multi-gpu does scattering it-self
+        
+        #if n_gpu == 1:
+        batch = tuple(t.to(device) for t in batch)  # multi-gpu does scattering it-self
+        print("after batch")
         input_ids, input_mask, segment_ids, start_positions, end_positions = batch
+        print("just before model")
+        
         loss = model(input_ids, segment_ids, input_mask, start_positions, end_positions)
-        loss = post_process_loss(args, n_gpu, loss)
+        print(input_ids, segment_ids, input_mask, start_positions, end_positions)
+        print("before loss backward")
+        #loss = post_process_loss( n_gpu, loss)
         loss.backward()
+        print("before summing loss item")
         running_loss += loss.item()
-
+        print("n_gpu:",n_gpu, step, batch)
         if (step + 1) % 1 == 0:
-            if args.fp16 or args.optimize_on_cpu:
-                if args.fp16 and args.loss_scale != 1.0:
-                    # scale down gradients for fp16 training
-                    for param in model.parameters():
-                        param.grad.data = param.grad.data / args.loss_scale
-                is_nan = set_optimizer_params_grad(param_optimizer, model.named_parameters(), test_nan=True)
-                if is_nan:
-                    #print("FP16 TRAINING: Nan in gradients, reducing loss scaling")
-                    args.loss_scale = args.loss_scale / 2
-                    model.zero_grad()
-                    continue
-                optimizer.step()
-                copy_optimizer_params_to_model(model.named_parameters(), param_optimizer)
-            else:
-                optimizer.step()
+            print("in if")
+            optimizer.step()
             model.zero_grad()
             global_step += 1
             count += 1
 
             if global_step % save_checkpoints_steps == 0 and count != 0:
                 print("step: {}, loss: {:.4f}".format(global_step, running_loss / count))
-
+            print("middle if")
             if global_step % save_checkpoints_steps == 0 and global_step > start_save_steps and count != 0:  # eval & save model
                 #print("***** Running evaluation *****")
                 model.eval()
-                metrics = evaluate(args, model, device, eval_examples, eval_features, eval_dataloader, logger)
+                metrics = evaluate(model, device, eval_examples, eval_features, eval_dataloader)
                 f = open(log_path, "a")
                 print("step: {}, loss: {:.4f}, P: {:.4f}, R: {:.4f}, F1: {:.4f} (common: {}, retrieved: {}, relevant: {})"
                       .format(global_step, running_loss / count, metrics['p'], metrics['r'],
@@ -1071,8 +1059,8 @@ def run_train_epoch(args, global_step, model, param_optimizer, train_dataloader,
                         'optimizer': optimizer.state_dict(),
                         'step': global_step
                     }, save_path)
-                if args.debug:
-                    break
+
+        print("out of if")        
     return global_step, model, best_f1
 
 def gelu(x):
