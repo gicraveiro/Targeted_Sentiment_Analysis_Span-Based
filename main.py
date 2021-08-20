@@ -73,10 +73,22 @@ def restart_sampling():
       sentence_attention_mask = (len(sentence)*[1] + num_zeros*[0])
       sent_label_list = sent_label.split()
       print(sent_label_list)
+      
       for index,token in enumerate(sent_label_list):
         tag = token.split("=")
         tag = tag[1]
-        
+        #print(sentence[index], ' ', tokenizer.convert_ids_to_tokens(sentence[index]), tag)
+        print(sentence_start_positions)
+        print(sentence_end_positions)
+        print(tokenizer.convert_ids_to_tokens(sentence[index])[0:2])
+        if (tokenizer.convert_ids_to_tokens(sentence[index])[0:2] == '##'):
+          print(sentence_start_positions[-1])
+          print(sentence_start_positions)
+          print(tag)
+          sentence_start_positions += [sentence_start_positions[-1]]
+          sentence_end_positions += [sentence_end_positions[-1]]
+          print("added")
+
         if (tag != 'O' and (index-1 < 0 or sent_label_list[index-1].split("=")[1] == 'O')):
           sentence_start_positions += [1]
         else:
@@ -86,6 +98,7 @@ def restart_sampling():
           sentence_end_positions += [1]
         else:
           sentence_end_positions += [0]
+        print(sentence[index], tokenizer.convert_ids_to_tokens(sentence[index]), sentence_start_positions[index], sentence_end_positions[index], tag)
       
       sentence_start_positions += (num_zeros*[0])+[0] # initial and final token must be added as extra zeros eve beyond the zeros that represent absence of tokens
       sentence_end_positions += (num_zeros*[0])+[0]
@@ -123,7 +136,7 @@ dataframe = dataframe.reindex(new_index_list) # sorted dataframe by length of th
 dataframe = dataframe.reset_index(drop=True)
 
 input_ids, attention_mask, start_positions, end_positions = restart_sampling()
-'''
+
 
 # REUSED FROM PAPER 
 
@@ -146,6 +159,7 @@ train_batch_size = 4
 # their tokenizer was the FullTokenizer but let's head it with this one for now and see what happens
 print("***** Preparing training *****")
 train_dataloader, num_train_steps = read_train_data(tokenizer)
+'''
 print("***** Preparing evaluation *****")
 eval_examples, eval_features, eval_dataloader = read_eval_data(tokenizer)
 print("***** Preparing optimizer *****")
