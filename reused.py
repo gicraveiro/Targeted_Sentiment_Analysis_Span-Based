@@ -14,9 +14,1055 @@ import copy
 import json
 import math
 import six
+import collections
+from collections import Counter
 import torch
+import pickle
+import unicodedata
+import sys
+import re, string
 import torch.nn as nn
 from torch.nn import CrossEntropyLoss
+from torch.nn.utils import clip_grad_norm_
+from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
+#from torch.utils.data.distributed import DistributedSampler
+
+is_python3 = sys.version_info.major == 3
+if is_python3:
+    unicode = str
+
+label_to_id = {'other': 0, 'neutral': 1, 'positive': 2, 'negative': 3, 'conflict': 4}
+
+class SemEvalExample(object):
+    def __init__(self,
+                 example_id,
+                 sent_tokens,
+                 term_texts=None,
+                 start_positions=None,
+                 end_positions=None,
+                 polarities=None):
+        self.example_id = example_id
+        self.sent_tokens = sent_tokens
+        self.term_texts = term_texts
+        self.start_positions = start_positions
+        self.end_positions = end_positions
+        self.polarities = polarities
+
+    def __str__(self):
+        return self.__repr__()
+
+    def __repr__(self):
+        s = ""
+        # s += "example_id: %s" % (tokenization.printable_text(self.example_id))
+        s += ", sent_tokens: [%s]" % (" ".join(self.sent_tokens))
+        if self.term_texts:
+            s += ", term_texts: {}".format(self.term_texts)
+        # if self.start_positions:
+        #     s += ", start_positions: {}".format(self.start_positions)
+        # if self.end_positions:
+        #     s += ", end_positions: {}".format(self.end_positions)
+        if self.polarities:
+            s += ", polarities: {}".format(self.polarities)
+        return s
+
+class InputFeatures(object):
+    """A single set of features of data."""
+
+    def __init__(self,
+                 unique_id,
+                 example_index,
+                 tokens,
+                 token_to_orig_map,
+                 input_ids,
+                 input_mask,
+                 segment_ids,
+                 start_positions=None,
+                 end_positions=None,
+                 start_indexes=None,
+                 end_indexes=None,
+                 bio_labels=None,
+                 polarity_positions=None,
+                 polarity_labels=None,
+                 label_masks=None):
+        self.unique_id = unique_id
+        self.example_index = example_index
+        self.tokens = tokens
+        self.token_to_orig_map = token_to_orig_map
+        self.input_ids = input_ids
+        self.input_mask = input_mask
+        self.segment_ids = segment_ids
+        self.start_positions = start_positions
+        self.end_positions = end_positions
+        self.start_indexes = start_indexes
+        self.end_indexes = end_indexes
+        self.bio_labels = bio_labels
+        self.polarity_positions = polarity_positions
+        self.polarity_labels = polarity_labels
+        self.label_masks = label_masks
+
+def ts2start_end(ts_tag_sequence):
+    starts, ends = [], []
+    n_tag = len(ts_tag_sequence)
+    prev_pos, prev_sentiment = '$$$', '$$$'
+    tag_on = False
+    for i in range(n_tag):
+        cur_ts_tag = ts_tag_sequence[i]
+        if cur_ts_tag != 'O':
+            cur_pos, cur_sentiment = cur_ts_tag.split('-')
+        else:
+            cur_pos, cur_sentiment = 'O', '$$$'
+        assert cur_pos == 'O' or cur_pos == 'T'
+        if cur_pos == 'T':
+            if prev_pos != 'T':
+                # cur tag is at the beginning of the opinion target
+                starts.append(i)
+                tag_on = True
+            else:
+                if cur_sentiment != prev_sentiment:
+                    # prev sentiment is not equal to current sentiment
+                    ends.append(i - 1)
+                    starts.append(i)
+                    tag_on = True
+        else:
+            if prev_pos == 'T':
+                ends.append(i - 1)
+                tag_on = False
+        prev_pos = cur_pos
+        prev_sentiment = cur_sentiment
+    if tag_on:
+        ends.append(n_tag-1)
+    assert len(starts) == len(ends), (len(starts), len(ends), ts_tag_sequence)
+    return starts, ends
+
+def ts2polarity(words, ts_tag_sequence, starts, ends):
+    polarities = []
+    for start, end in zip(starts, ends):
+        cur_ts_tag = ts_tag_sequence[start]
+        cur_pos, cur_sentiment = cur_ts_tag.split('-')
+        assert cur_pos == 'T'
+        prev_sentiment = cur_sentiment
+        if start < end:
+            for idx in range(start, end + 1):
+                cur_ts_tag = ts_tag_sequence[idx]
+                cur_pos, cur_sentiment = cur_ts_tag.split('-')
+                assert cur_pos == 'T'
+                assert cur_sentiment == prev_sentiment, (words, ts_tag_sequence, start, end)
+                prev_sentiment = cur_sentiment
+        polarities.append(cur_sentiment)
+    return polarities
+
+def pos2term(words, starts, ends):
+    term_texts = []
+    for start, end in zip(starts, ends):
+        term_texts.append(' '.join(words[start:end+1]))
+    return term_texts
+
+def convert_absa_data(dataset, verbose_logging=False):
+    examples = []
+    n_records = len(dataset)
+    for i in range(n_records):
+        words = dataset[i]['words']
+        ts_tags = dataset[i]['ts_raw_tags']
+        starts, ends = ts2start_end(ts_tags)
+        polarities = ts2polarity(words, ts_tags, starts, ends)
+        term_texts = pos2term(words, starts, ends)
+
+        if term_texts != []:
+            new_polarities = []
+            for polarity in polarities:
+                if polarity == 'POS':
+                    new_polarities.append('positive')
+                elif polarity == 'NEG':
+                    new_polarities.append('negative')
+                elif polarity == 'NEU':
+                    new_polarities.append('neutral')
+                else:
+                    raise Exception
+            assert len(term_texts) == len(starts)
+            assert len(term_texts) == len(new_polarities)
+            example = SemEvalExample(str(i), words, term_texts, starts, ends, new_polarities)
+            print(example)
+            examples.append(example)
+            if i < 50 and verbose_logging:
+                print(example)
+    print("Convert %s examples" % len(examples))
+    return examples
+
+def read_absa_data(path):
+    """
+    read data from the specified path
+    :param path: path of dataset
+    :return:
+    """
+    dataset = []
+    with open(path, encoding='UTF-8') as fp:
+        for line in fp:
+            record = {}
+            sent, tag_string = line.strip().split('####')
+            record['sentence'] = sent
+            word_tag_pairs = tag_string.split(' ')
+            # tag sequence for targeted sentiment
+            ts_tags = []
+            # tag sequence for opinion target extraction
+            ote_tags = []
+            # word sequence
+            words = []
+            for item in word_tag_pairs:
+                # valid label is: O, T-POS, T-NEG, T-NEU
+                eles = item.split('=')
+                if len(eles) == 2:
+                    word, tag = eles
+                elif len(eles) > 2:
+                    tag = eles[-1]
+                    word = (len(eles) - 2) * "="
+                words.append(word.lower())
+                if tag == 'O':
+                    ote_tags.append('O')
+                    ts_tags.append('O')
+                elif tag == 'T-POS':
+                    ote_tags.append('T')
+                    ts_tags.append('T-POS')
+                elif tag == 'T-NEG':
+                    ote_tags.append('T')
+                    ts_tags.append('T-NEG')
+                elif tag == 'T-NEU':
+                    ote_tags.append('T')
+                    ts_tags.append('T-NEU')
+                else:
+                    raise Exception('Invalid tag %s!!!' % tag)
+            record['words'] = words.copy()
+            record['ote_raw_tags'] = ote_tags.copy()
+            record['ts_raw_tags'] = ts_tags.copy()
+            dataset.append(record)
+    print("Obtain %s records from %s" % (len(dataset), path))
+    return dataset
+
+def convert_examples_to_features(examples, tokenizer, max_seq_length, verbose_logging=False, logger=None):
+    max_term_num = max([len(example.term_texts) for (example_index, example) in enumerate(examples)])
+    max_sent_length, max_term_length = 0, 0
+
+    unique_id = 1000000000
+    features = []
+    for (example_index, example) in enumerate(examples):
+        tok_to_orig_index = []
+        orig_to_tok_index = []
+        all_doc_tokens = []
+        for (i, token) in enumerate(example.sent_tokens):
+            orig_to_tok_index.append(len(all_doc_tokens))
+            sub_tokens = tokenizer.tokenize(token)
+            for sub_token in sub_tokens:
+                tok_to_orig_index.append(i)
+                all_doc_tokens.append(sub_token)
+        if len(all_doc_tokens) > max_sent_length:
+            max_sent_length = len(all_doc_tokens)
+
+        tok_start_positions = []
+        tok_end_positions = []
+        for start_position, end_position in \
+                zip(example.start_positions, example.end_positions):
+            tok_start_position = orig_to_tok_index[start_position]
+            if end_position < len(example.sent_tokens) - 1:
+                tok_end_position = orig_to_tok_index[end_position + 1] - 1
+            else:
+                tok_end_position = len(all_doc_tokens) - 1
+            tok_start_positions.append(tok_start_position)
+            tok_end_positions.append(tok_end_position)
+
+        # Account for [CLS] and [SEP] with "- 2"
+        if len(all_doc_tokens) > max_seq_length - 2:
+            all_doc_tokens = all_doc_tokens[0:(max_seq_length - 2)]
+
+        tokens = []
+        token_to_orig_map = {}
+        segment_ids = []
+        tokens.append("[CLS]")
+        segment_ids.append(0)
+
+        for index, token in enumerate(all_doc_tokens):
+            token_to_orig_map[len(tokens)] = tok_to_orig_index[index]
+            tokens.append(token)
+            segment_ids.append(0)
+        tokens.append("[SEP]")
+        segment_ids.append(0)
+
+        input_ids = tokenizer.convert_tokens_to_ids(tokens)
+        input_mask = [1] * len(input_ids)
+
+        while len(input_ids) < max_seq_length:
+            input_ids.append(0)
+            input_mask.append(0)
+            segment_ids.append(0)
+
+        assert len(input_ids) == max_seq_length
+        assert len(input_mask) == max_seq_length
+        assert len(segment_ids) == max_seq_length
+
+        # For distant supervision, we annotate the positions of all answer spans
+        start_positions = [0] * len(input_ids)
+        end_positions = [0] * len(input_ids)
+        bio_labels = [0] * len(input_ids)
+        polarity_positions = [0] * len(input_ids)
+        start_indexes, end_indexes = [], []
+        for tok_start_position, tok_end_position, polarity in zip(tok_start_positions, tok_end_positions, example.polarities):
+            if (tok_start_position >= 0 and tok_end_position <= (max_seq_length - 1)):
+                start_position = tok_start_position + 1   # [CLS]
+                end_position = tok_end_position + 1   # [CLS]
+                start_positions[start_position] = 1
+                end_positions[end_position] = 1
+                start_indexes.append(start_position)
+                end_indexes.append(end_position)
+                term_length = tok_end_position - tok_start_position + 1
+                max_term_length = term_length if term_length > max_term_length else max_term_length
+                bio_labels[start_position] = 1  # 'B'
+                if start_position < end_position:
+                    for idx in range(start_position + 1, end_position + 1):
+                        bio_labels[idx] = 2  # 'I'
+                for idx in range(start_position, end_position + 1):
+                    polarity_positions[idx] = label_to_id[polarity]
+
+        polarity_labels = [label_to_id[polarity] for polarity in example.polarities]
+        label_masks = [1] * len(polarity_labels)
+
+        while len(start_indexes) < max_term_num:
+            start_indexes.append(0)
+            end_indexes.append(0)
+            polarity_labels.append(0)
+            label_masks.append(0)
+
+        assert len(start_indexes) == max_term_num
+        assert len(end_indexes) == max_term_num
+        assert len(polarity_labels) == max_term_num
+        assert len(label_masks) == max_term_num
+
+        if example_index < 1 and verbose_logging:
+            print("*** Example ***")
+            print("unique_id: %s" % (unique_id))
+            print("example_index: %s" % (example_index))
+            print("tokens: {}".format(tokens))
+            print("token_to_orig_map: {}".format(token_to_orig_map))
+            print("start_indexes: {}".format(start_indexes))
+            print("end_indexes: {}".format(end_indexes))
+            print("bio_labels: {}".format(bio_labels))
+            print("polarity_positions: {}".format(polarity_positions))
+            print("polarity_labels: {}".format(polarity_labels))
+
+        features.append(
+            InputFeatures(
+                unique_id=unique_id,
+                example_index=example_index,
+                tokens=tokens,
+                token_to_orig_map=token_to_orig_map,
+                input_ids=input_ids,
+                input_mask=input_mask,
+                segment_ids=segment_ids,
+                start_positions=start_positions,
+                end_positions=end_positions,
+                start_indexes=start_indexes,
+                end_indexes=end_indexes,
+                bio_labels=bio_labels,
+                polarity_positions=polarity_positions,
+                polarity_labels=polarity_labels,
+                label_masks=label_masks))
+        unique_id += 1
+    #print("Max sentence length: {}".format(max_sent_length))
+    #print("Max term length: {}".format(max_term_length))
+    #print("Max term num: {}".format(max_term_num))
+    return features
+
+def read_train_data(tokenizer):
+    train_path = "data/laptop14_train.txt"
+    train_set = read_absa_data(train_path)
+    train_examples = convert_absa_data(dataset=train_set, verbose_logging=False)
+
+    train_features = convert_examples_to_features(train_examples, tokenizer, 96,
+                                                  False)
+
+    num_train_steps = int(
+        len(train_features) / 8 / 1 * 3.0)
+    print("Num orig examples = %d", len(train_examples))
+    print("Num split features = %d", len(train_features))
+    print("Batch size = %d", 8)
+    print("Num steps = %d", num_train_steps)
+    all_input_ids = torch.tensor([f.input_ids for f in train_features], dtype=torch.long)
+    all_input_mask = torch.tensor([f.input_mask for f in train_features], dtype=torch.long)
+    all_segment_ids = torch.tensor([f.segment_ids for f in train_features], dtype=torch.long)
+    all_start_positions = torch.tensor([f.start_positions for f in train_features], dtype=torch.long)
+    all_end_positions = torch.tensor([f.end_positions for f in train_features], dtype=torch.long)
+    print("input ids",all_input_ids[0],"\n")
+    print("segment ids", all_segment_ids[0], "\n")
+    print("start positions", all_start_positions[0], "\n")
+    print("end positions", all_end_positions[0], "\n")
+
+    train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_start_positions, all_end_positions)
+   
+    train_sampler = RandomSampler(train_data)
+    
+    train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=8)
+    return train_dataloader, num_train_steps
+
+def read_eval_data(tokenizer):
+    eval_path = 'data/laptop14_test.txt'#os.path.join(args.data_dir, args.predict_file)
+    eval_set = read_absa_data(eval_path)
+    eval_examples = convert_absa_data(dataset=eval_set, verbose_logging=False)
+
+    eval_features = convert_examples_to_features(eval_examples, tokenizer, 96,
+                                                 False)
+
+    #print("Num orig examples = %d", len(eval_examples))
+    #print("Num split features = %d", len(eval_features))
+    #print("Batch size = %d", args.predict_batch_size)
+    all_input_ids = torch.tensor([f.input_ids for f in eval_features], dtype=torch.long)
+    all_input_mask = torch.tensor([f.input_mask for f in eval_features], dtype=torch.long)
+    all_segment_ids = torch.tensor([f.segment_ids for f in eval_features], dtype=torch.long)
+    all_example_index = torch.arange(all_input_ids.size(0), dtype=torch.long)
+    eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_example_index)
+    #if args.local_rank == -1:
+    eval_sampler = SequentialSampler(eval_data)
+    #else:
+    #    eval_sampler = DistributedSampler(eval_data)
+    eval_dataloader = DataLoader(eval_data, sampler=eval_sampler, batch_size=8) # args.predict_batch_size
+    return eval_examples, eval_features, eval_dataloader
+
+def prepare_optimizer(model, num_train_steps):
+
+    param_optimizer = list(model.named_parameters())
+    no_decay = ['bias', 'LayerNorm']
+    optimizer_grouped_parameters = [
+        {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
+        {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}]
+    optimizer = BERTAdam(optimizer_grouped_parameters,
+                            lr=2e-5,
+                            warmup=0.1,
+                            t_total=num_train_steps)
+    return optimizer, param_optimizer
+
+
+def copy_optimizer_params_to_model(named_params_model, named_params_optimizer):
+    """ Utility function for optimize_on_cpu and 16-bits training.
+        Copy the parameters optimized on CPU/RAM back to the model on GPU
+    """
+    for (name_opti, param_opti), (name_model, param_model) in zip(named_params_optimizer, named_params_model):
+        if name_opti != name_model:
+            #logger.error("name_opti != name_model: {} {}".format(name_opti, name_model))
+            raise ValueError
+        param_model.data.copy_(param_opti.data)
+
+def set_optimizer_params_grad(named_params_optimizer, named_params_model, test_nan=False):
+    """ Utility function for optimize_on_cpu and 16-bits training.
+        Copy the gradient of the GPU parameters to the CPU/RAMM copy of the model
+    """
+    is_nan = False
+    for (name_opti, param_opti), (name_model, param_model) in zip(named_params_optimizer, named_params_model):
+        if name_opti != name_model:
+            #print("name_opti != name_model: {} {}".format(name_opti, name_model))
+            raise ValueError
+        if test_nan and torch.isnan(param_model.grad).sum() > 0:
+            is_nan = True
+        if param_opti.grad is None:
+            param_opti.grad = torch.nn.Parameter(param_opti.data.new().resize_(*param_opti.data.size()))
+        param_opti.grad.data.copy_(param_model.grad.data)
+    return is_nan
+
+RawSpanResult = collections.namedtuple("RawSpanResult",
+                                       ["unique_id", "start_logits", "end_logits"])
+RawFinalResult = collections.namedtuple("RawFinalResult",
+                                        ["unique_id", "start_indexes", "end_indexes", "cls_pred", "span_masks"])
+
+def normalize_answer(s):
+    """Lower text and remove punctuation, articles and extra whitespace."""
+    def remove_articles(text):
+        return re.sub(r'\b(a|an|the)\b', ' ', text)
+
+    def white_space_fix(text):
+        return ' '.join(text.split())
+
+    def remove_punc(text):
+        exclude = set(string.punctuation)
+        return ''.join(ch for ch in text if ch not in exclude)
+
+    def lower(text):
+        return text.lower()
+
+    return white_space_fix(remove_articles(remove_punc(lower(s))))
+
+def f1_score(prediction, ground_truth):
+    prediction_tokens = normalize_answer(prediction).split()
+    ground_truth_tokens = normalize_answer(ground_truth).split()
+    common = Counter(prediction_tokens) & Counter(ground_truth_tokens)
+    num_same = sum(common.values())
+    if num_same == 0:
+        return 0
+    precision = 1.0 * num_same / len(prediction_tokens)
+    recall = 1.0 * num_same / len(ground_truth_tokens)
+    f1 = (2 * precision * recall) / (precision + recall)
+    return f1
+
+def exact_match_score(prediction, ground_truth):
+    return (normalize_answer(prediction) == normalize_answer(ground_truth))
+
+def whitespace_tokenize(text):
+    """Runs basic whitespace cleaning and splitting on a peice of text."""
+    text = text.strip()
+    if not text:
+        return []
+    tokens = text.split()
+    return tokens
+
+def convert_to_unicode(text):
+    """Converts `text` to Unicode (if it's not already), assuming utf-8 input."""
+    if six.PY3:
+        if isinstance(text, str):
+            return text
+        elif isinstance(text, bytes):
+            return text.decode("utf-8", "ignore")
+        else:
+            raise ValueError("Unsupported string type: %s" % (type(text)))
+    elif six.PY2:
+        if isinstance(text, str):
+            return text.decode("utf-8", "ignore")
+        elif isinstance(text, unicode): 
+            return text
+        else:
+            raise ValueError("Unsupported string type: %s" % (type(text)))
+    else:
+        raise ValueError("Not running on Python2 or Python 3?")
+
+def _is_whitespace(char):
+    """Checks whether `chars` is a whitespace character."""
+    # \t, \n, and \r are technically contorl characters but we treat them
+    # as whitespace since they are generally considered as such.
+    if char == " " or char == "\t" or char == "\n" or char == "\r":
+        return True
+    cat = unicodedata.category(char)
+    if cat == "Zs":
+        return True
+    return False
+
+def _is_control(char):
+    """Checks whether `chars` is a control character."""
+    # These are technically control characters but we count them as whitespace
+    # characters.
+    if char == "\t" or char == "\n" or char == "\r":
+        return False
+    cat = unicodedata.category(char)
+    if cat.startswith("C"):
+        return True
+    return False
+
+def _is_punctuation(char):
+    """Checks whether `chars` is a punctuation character."""
+    cp = ord(char)
+    # We treat all non-letter/number ASCII as punctuation.
+    # Characters such as "^", "$", and "`" are not in the Unicode
+    # Punctuation class but we treat them as punctuation anyways, for
+    # consistency.
+    if ((cp >= 33 and cp <= 47) or (cp >= 58 and cp <= 64) or
+            (cp >= 91 and cp <= 96) or (cp >= 123 and cp <= 126)):
+        return True
+    cat = unicodedata.category(char)
+    if cat.startswith("P"):
+        return True
+    return False
+
+class BasicTokenizer(object):
+    """Runs basic tokenization (punctuation splitting, lower casing, etc.)."""
+
+    def __init__(self, do_lower_case=True):
+        """Constructs a BasicTokenizer.
+
+        Args:
+          do_lower_case: Whether to lower case the input.
+        """
+        self.do_lower_case = do_lower_case
+
+    def tokenize(self, text):
+        """Tokenizes a piece of text."""
+        text = convert_to_unicode(text)
+        text = self._clean_text(text)
+        # This was added on November 1st, 2018 for the multilingual and Chinese
+        # models. This is also applied to the English models now, but it doesn't
+        # matter since the English models were not trained on any Chinese data
+        # and generally don't have any Chinese data in them (there are Chinese
+        # characters in the vocabulary because Wikipedia does have some Chinese
+        # words in the English Wikipedia.).
+        text = self._tokenize_chinese_chars(text)
+        orig_tokens = whitespace_tokenize(text)
+        split_tokens = []
+        for token in orig_tokens:
+            if self.do_lower_case:
+                token = token.lower()
+                token = self._run_strip_accents(token)
+            split_tokens.extend(self._run_split_on_punc(token))
+
+        output_tokens = whitespace_tokenize(" ".join(split_tokens))
+        return output_tokens
+
+    def _run_strip_accents(self, text):
+        """Strips accents from a piece of text."""
+        text = unicodedata.normalize("NFD", text)
+        output = []
+        for char in text:
+            cat = unicodedata.category(char)
+            if cat == "Mn":
+                continue
+            output.append(char)
+        return "".join(output)
+
+    def _run_split_on_punc(self, text):
+        """Splits punctuation on a piece of text."""
+        chars = list(text)
+        i = 0
+        start_new_word = True
+        output = []
+        while i < len(chars):
+            char = chars[i]
+            if _is_punctuation(char):
+                output.append([char])
+                start_new_word = True
+            else:
+                if start_new_word:
+                    output.append([])
+                start_new_word = False
+                output[-1].append(char)
+            i += 1
+
+        return ["".join(x) for x in output]
+    
+    def _tokenize_chinese_chars(self, text):
+        """Adds whitespace around any CJK character."""
+        output = []
+        for char in text:
+            cp = ord(char)
+            if self._is_chinese_char(cp):
+                output.append(" ")
+                output.append(char)
+                output.append(" ")
+            else:
+                output.append(char)
+        return "".join(output)
+
+    def _is_chinese_char(self, cp):
+        """Checks whether CP is the codepoint of a CJK character."""
+        # This defines a "chinese character" as anything in the CJK Unicode block:
+        #   https://en.wikipedia.org/wiki/CJK_Unified_Ideographs_(Unicode_block)
+        #
+        # Note that the CJK Unicode block is NOT all Japanese and Korean characters,
+        # despite its name. The modern Korean Hangul alphabet is a different block,
+        # as is Japanese Hiragana and Katakana. Those alphabets are used to write
+        # space-separated words, so they are not treated specially and handled
+        # like the all of the other languages.
+        if ((cp >= 0x4E00 and cp <= 0x9FFF) or  #
+            (cp >= 0x3400 and cp <= 0x4DBF) or  #
+            (cp >= 0x20000 and cp <= 0x2A6DF) or  #
+            (cp >= 0x2A700 and cp <= 0x2B73F) or  #
+            (cp >= 0x2B740 and cp <= 0x2B81F) or  #
+            (cp >= 0x2B820 and cp <= 0x2CEAF) or
+            (cp >= 0xF900 and cp <= 0xFAFF) or  #
+            (cp >= 0x2F800 and cp <= 0x2FA1F)):  #
+            return True
+    
+        return False
+    
+    def _clean_text(self, text):
+        """Performs invalid character removal and whitespace cleanup on text."""
+        output = []
+        for char in text:
+            cp = ord(char)
+            if cp == 0 or cp == 0xfffd or _is_control(char):
+                continue
+            if _is_whitespace(char):
+                output.append(" ")
+            else:
+                output.append(char)
+        return "".join(output)
+
+def get_final_text(pred_text, orig_text, do_lower_case, verbose_logging=False, logger=None):
+    """Project the tokenized prediction back to the original text."""
+
+    # When we created the data, we kept track of the alignment between original
+    # (whitespace tokenized) tokens and our WordPiece tokenized tokens. So
+    # now `orig_text` contains the span of our original text corresponding to the
+    # span that we predicted.
+    #
+    # However, `orig_text` may contain extra characters that we don't want in
+    # our prediction.
+    #
+    # For example, let's say:
+    #   pred_text = steve smith
+    #   orig_text = Steve Smith's
+    #
+    # We don't want to return `orig_text` because it contains the extra "'s".
+    #
+    # We don't want to return `pred_text` because it's already been normalized
+    # (the SQuAD eval script also does punctuation stripping/lower casing but
+    # our tokenizer does additional normalization like stripping accent
+    # characters).
+    #
+    # What we really want to return is "Steve Smith".
+    #
+    # Therefore, we have to apply a semi-complicated alignment heruistic between
+    # `pred_text` and `orig_text` to get a character-to-charcter alignment. This
+    # can fail in certain cases in which case we just return `orig_text`.
+
+    def _strip_spaces(text):
+        ns_chars = []
+        ns_to_s_map = collections.OrderedDict()
+        for (i, c) in enumerate(text):
+            if c == " ":
+                continue
+            ns_to_s_map[len(ns_chars)] = i
+            ns_chars.append(c)
+        ns_text = "".join(ns_chars)
+        return (ns_text, ns_to_s_map)
+
+    # We first tokenize `orig_text`, strip whitespace from the result
+    # and `pred_text`, and check if they are the same length. If they are
+    # NOT the same length, the heuristic has failed. If they are the same
+    # length, we assume the characters are one-to-one aligned.
+    tokenizer = BasicTokenizer(do_lower_case=do_lower_case)
+
+    tok_text = " ".join(tokenizer.tokenize(orig_text))
+
+    start_position = tok_text.find(pred_text)
+    if start_position == -1:
+        if verbose_logging:
+            print(
+                "Unable to find text: '%s' in '%s'" % (pred_text, orig_text))
+        return orig_text
+    end_position = start_position + len(pred_text) - 1
+
+    (orig_ns_text, orig_ns_to_s_map) = _strip_spaces(orig_text)
+    (tok_ns_text, tok_ns_to_s_map) = _strip_spaces(tok_text)
+
+    if len(orig_ns_text) != len(tok_ns_text):
+        if verbose_logging:
+            print("Length not equal after stripping spaces: '%s' vs '%s'",
+                            orig_ns_text, tok_ns_text)
+        return orig_text
+
+    # We then project the characters in `pred_text` back to `orig_text` using
+    # the character-to-character alignment.
+    tok_s_to_ns_map = {}
+    for (i, tok_index) in six.iteritems(tok_ns_to_s_map):
+        tok_s_to_ns_map[tok_index] = i
+
+    orig_start_position = None
+    if start_position in tok_s_to_ns_map:
+        ns_start_position = tok_s_to_ns_map[start_position]
+        if ns_start_position in orig_ns_to_s_map:
+            orig_start_position = orig_ns_to_s_map[ns_start_position]
+
+    if orig_start_position is None:
+        if verbose_logging:
+            print("Couldn't map start position")
+        return orig_text
+
+    orig_end_position = None
+    if end_position in tok_s_to_ns_map:
+        ns_end_position = tok_s_to_ns_map[end_position]
+        if ns_end_position in orig_ns_to_s_map:
+            orig_end_position = orig_ns_to_s_map[ns_end_position]
+
+    if orig_end_position is None:
+        if verbose_logging:
+            print("Couldn't map end position")
+        return orig_text
+
+    output_text = orig_text[orig_start_position:(orig_end_position + 1)]
+    return output_text
+
+def _get_best_indexes(logits, n_best_size):
+    """Get the n-best logits from a list."""
+    index_and_score = sorted(enumerate(logits), key=lambda x: x[1], reverse=True)
+
+    best_indexes = []
+    for i in range(len(index_and_score)):
+        if i >= n_best_size:
+            break
+        best_indexes.append(index_and_score[i][0])
+    return best_indexes
+
+def wrapped_get_final_text(example, feature, start_index, end_index, do_lower_case, verbose_logging, logger):
+    tok_tokens = feature.tokens[start_index:(end_index + 1)]
+    orig_doc_start = feature.token_to_orig_map[start_index]
+    orig_doc_end = feature.token_to_orig_map[end_index]
+    orig_tokens = example.sent_tokens[orig_doc_start:(orig_doc_end + 1)]
+    tok_text = " ".join(tok_tokens)
+
+    # De-tokenize WordPieces that have been split off.
+    tok_text = tok_text.replace(" ##", "")
+    tok_text = tok_text.replace("##", "")
+
+    # Clean whitespace
+    tok_text = tok_text.strip()
+    tok_text = " ".join(tok_text.split())
+    orig_text = " ".join(orig_tokens)
+
+    final_text = get_final_text(tok_text, orig_text, do_lower_case, verbose_logging, logger)
+    return final_text
+
+def span_annotate_candidates(all_examples, batch_features, batch_results, filter_type, is_training, use_heuristics, use_nms,
+                             logit_threshold, n_best_size, max_answer_length, do_lower_case, verbose_logging, logger):
+    """Annotate top-k candidate answers into features."""
+    unique_id_to_result = {}
+    for result in batch_results:
+        unique_id_to_result[result.unique_id] = result
+
+    _PrelimPrediction = collections.namedtuple(  # pylint: disable=invalid-name
+        "PrelimPrediction",
+        ["feature_index", "start_index", "end_index", "start_logit", "end_logit"])
+
+    batch_span_starts, batch_span_ends, batch_labels, batch_label_masks = [], [], [], []
+    for (feature_index, feature) in enumerate(batch_features):
+        example = all_examples[feature.example_index]
+        result = unique_id_to_result[feature.unique_id]
+
+        seen_predictions = {}
+        span_starts, span_ends, labels, label_masks = [], [], [], []
+        if is_training:
+            # add ground-truth terms
+            for start_index, end_index, polarity_label, mask in \
+                    zip(feature.start_indexes, feature.end_indexes, feature.polarity_labels, feature.label_masks):
+                if mask and start_index in feature.token_to_orig_map and end_index in feature.token_to_orig_map:
+                    final_text = wrapped_get_final_text(example, feature, start_index, end_index,
+                                                        do_lower_case, verbose_logging, logger)
+                    if final_text in seen_predictions:
+                        continue
+                    seen_predictions[final_text] = True
+
+                    span_starts.append(start_index)
+                    span_ends.append(end_index)
+                    labels.append(polarity_label)
+                    label_masks.append(1)
+        else:
+            prelim_predictions_per_feature = []
+            start_indexes = _get_best_indexes(result.start_logits, n_best_size)
+            end_indexes = _get_best_indexes(result.end_logits, n_best_size)
+            for start_index in start_indexes:
+                for end_index in end_indexes:
+                    # We could hypothetically create invalid predictions, e.g., predict
+                    # that the start of the span is in the question. We throw out all
+                    # invalid predictions.
+                    if start_index >= len(feature.tokens):
+                        continue
+                    if end_index >= len(feature.tokens):
+                        continue
+                    if start_index not in feature.token_to_orig_map:
+                        continue
+                    if end_index not in feature.token_to_orig_map:
+                        continue
+                    if end_index < start_index:
+                        continue
+                    length = end_index - start_index + 1
+                    if length > max_answer_length:
+                        continue
+                    start_logit = result.start_logits[start_index]
+                    end_logit = result.end_logits[end_index]
+                    if start_logit + end_logit < logit_threshold:
+                        continue
+
+                    prelim_predictions_per_feature.append(
+                        _PrelimPrediction(
+                            feature_index=feature_index,
+                            start_index=start_index,
+                            end_index=end_index,
+                            start_logit=start_logit,
+                            end_logit=end_logit))
+
+            if use_heuristics:
+                prelim_predictions_per_feature = sorted(
+                    prelim_predictions_per_feature,
+                    key=lambda x: (x.start_logit + x.end_logit - (x.end_index - x.start_index + 1)),
+                    reverse=True)
+            else:
+                prelim_predictions_per_feature = sorted(
+                    prelim_predictions_per_feature,
+                    key=lambda x: (x.start_logit + x.end_logit),
+                    reverse=True)
+
+            for i, pred_i in enumerate(prelim_predictions_per_feature):
+                if len(span_starts) >= int(n_best_size)/2:
+                    break
+                final_text = wrapped_get_final_text(example, feature, pred_i.start_index, pred_i.end_index,
+                                                    do_lower_case, verbose_logging, logger)
+                if final_text in seen_predictions:
+                    continue
+                seen_predictions[final_text] = True
+
+                span_starts.append(pred_i.start_index)
+                span_ends.append(pred_i.end_index)
+                labels.append(0)
+                label_masks.append(1)
+
+                # filter out redundant candidates
+                if (i+1) < len(prelim_predictions_per_feature) and use_nms:
+                    indexes = []
+                    for j, pred_j in enumerate(prelim_predictions_per_feature[(i+1):]):
+                        filter_text = wrapped_get_final_text(example, feature, pred_j.start_index, pred_j.end_index,
+                                                             do_lower_case, verbose_logging, logger)
+                        if filter_type == 'em':
+                            if exact_match_score(final_text, filter_text):
+                                indexes.append(i + j + 1)
+                        elif filter_type == 'f1':
+                            if f1_score(final_text, filter_text) > 0:
+                                indexes.append(i + j + 1)
+                        else:
+                            raise Exception
+                    [prelim_predictions_per_feature.pop(index - k) for k, index in enumerate(indexes)]
+
+        # Pad to fixed length
+        while len(span_starts) < int(n_best_size):
+            span_starts.append(0)
+            span_ends.append(0)
+            labels.append(0)
+            label_masks.append(0)
+        assert len(span_starts) == int(n_best_size)
+        assert len(span_ends) == int(n_best_size)
+        assert len(labels) == int(n_best_size)
+        assert len(label_masks) == int(n_best_size)
+
+        batch_span_starts.append(span_starts)
+        batch_span_ends.append(span_ends)
+        batch_labels.append(labels)
+        batch_label_masks.append(label_masks)
+    return batch_span_starts, batch_span_ends, batch_labels, batch_label_masks
+
+def metric_max_over_ground_truths(metric_fn, prediction, ground_truths):
+    scores_for_ground_truths = []
+    for ground_truth in ground_truths:
+        score = metric_fn(prediction, ground_truth)
+        scores_for_ground_truths.append(score)
+    return max(scores_for_ground_truths)
+
+def eval_aspect_extract(all_examples, all_features, all_results, do_lower_case, verbose_logging, logger):
+    unique_id_to_result = {}
+    for result in all_results:
+        unique_id_to_result[result.unique_id] = result
+
+    all_nbest_json = collections.OrderedDict()
+    common, relevant, retrieved = 0., 0., 0.
+    for (feature_index, feature) in enumerate(all_features):
+        example = all_examples[feature.example_index]
+        result = unique_id_to_result[feature.unique_id]
+
+        pred_terms = []
+        for start_index, end_index, span_mask in zip(result.start_indexes, result.end_indexes, result.span_masks):
+            if span_mask:
+                final_text = wrapped_get_final_text(example, feature, start_index, end_index,
+                                                    do_lower_case, verbose_logging, logger)
+                pred_terms.append(final_text)
+
+        prediction = {'pred': pred_terms, 'gold': example.term_texts}
+        all_nbest_json[example.example_id] = prediction
+
+        for pred_term in pred_terms:
+            common += metric_max_over_ground_truths(exact_match_score, pred_term, example.term_texts)
+        retrieved += len(pred_terms)
+        relevant += len(example.term_texts)
+    p = common / retrieved if retrieved > 0 else 0.
+    r = common / relevant
+    f1 = (2 * p * r) / (p + r) if p > 0 and r > 0 else 0.
+
+    return {'p': p, 'r': r, 'f1': f1, 'common': common, 'retrieved': retrieved, 'relevant': relevant}, all_nbest_json
+
+def evaluate(model, device, eval_examples, eval_features, eval_dataloader, write_pred=False, do_pipeline=False):
+    all_results = []
+    for batch in eval_dataloader:
+        batch = tuple(t.to(device) for t in batch)
+        input_ids, input_mask, segment_ids, example_indices = batch
+        with torch.no_grad():
+            batch_start_logits, batch_end_logits = model(input_ids, segment_ids, input_mask)
+
+        batch_features, batch_results = [], []
+        for j, example_index in enumerate(example_indices):
+            start_logits = batch_start_logits[j].detach().cpu().tolist()
+            end_logits = batch_end_logits[j].detach().cpu().tolist()
+            eval_feature = eval_features[example_index.item()]
+            unique_id = int(eval_feature.unique_id)
+            batch_features.append(eval_feature)
+            batch_results.append(RawSpanResult(unique_id=unique_id, start_logits=start_logits, end_logits=end_logits))
+
+        span_starts, span_ends, _, label_masks = span_annotate_candidates(eval_examples, batch_features, batch_results,
+                                                                          'f1', False,
+                                                                          True, True,
+                                                                          7.5, 20,
+                                                                          12, True,
+                                                                          False,)
+
+        for j, example_index in enumerate(example_indices):
+            start_indexes = span_starts[j]
+            end_indexes = span_ends[j]
+            span_masks = label_masks[j]
+            eval_feature = eval_features[example_index.item()]
+            unique_id = int(eval_feature.unique_id)
+            all_results.append(RawFinalResult(unique_id=unique_id, start_indexes=start_indexes,
+                                              end_indexes=end_indexes, cls_pred=None, span_masks=span_masks))
+
+    metrics, all_nbest_json = eval_aspect_extract(eval_examples, eval_features, all_results,
+                                                  True, False)
+    if write_pred:
+        output_file = 'out/extract/01/predictions.json'#os.path.join(args.output_dir, "predictions.json")
+        with open(output_file, "w") as writer:
+            writer.write(json.dumps(all_nbest_json, indent=4) + "\n")
+        print("Writing predictions to: %s" % (output_file))
+    if do_pipeline:
+        output_file =  'out/extract/01/extraction_results.pkl'#os.path.join(args.output_dir, "extraction_results.pkl")
+        pickle.dump(all_results, open(output_file, 'wb'))
+    return metrics
+
+def run_train_epoch(global_step, model, param_optimizer, train_dataloader,
+                    eval_examples, eval_features, eval_dataloader,
+                    optimizer, n_gpu, device, log_path, save_path,
+                    save_checkpoints_steps, start_save_steps, best_f1):
+    running_loss, count = 0.0, 0
+    for step, batch in enumerate(train_dataloader):
+        
+        #if n_gpu == 1:
+        batch = tuple(t.to(device) for t in batch)  # multi-gpu does scattering it-self
+        print("after batch")
+        input_ids, input_mask, segment_ids, start_positions, end_positions = batch
+        print("just before model")
+        
+        loss = model(input_ids, segment_ids, input_mask, start_positions, end_positions)
+        print(input_ids, segment_ids, input_mask, start_positions, end_positions)
+        print("before loss backward")
+        #loss = post_process_loss( n_gpu, loss)
+        loss.backward()
+        print("before summing loss item")
+        running_loss += loss.item()
+        print("n_gpu:",n_gpu, step, batch)
+        if (step + 1) % 1 == 0:
+            print("in if")
+            optimizer.step()
+            model.zero_grad()
+            global_step += 1
+            count += 1
+
+            if global_step % save_checkpoints_steps == 0 and count != 0:
+                print("step: {}, loss: {:.4f}".format(global_step, running_loss / count))
+            print("middle if")
+            if global_step % save_checkpoints_steps == 0 and global_step > start_save_steps and count != 0:  # eval & save model
+                #print("***** Running evaluation *****")
+                model.eval()
+                metrics = evaluate(model, device, eval_examples, eval_features, eval_dataloader)
+                f = open(log_path, "a")
+                print("step: {}, loss: {:.4f}, P: {:.4f}, R: {:.4f}, F1: {:.4f} (common: {}, retrieved: {}, relevant: {})"
+                      .format(global_step, running_loss / count, metrics['p'], metrics['r'],
+                              metrics['f1'], metrics['common'], metrics['retrieved'], metrics['relevant']), file=f)
+                print(" ", file=f)
+                f.close()
+                running_loss, count = 0.0, 0
+                model.train()
+                if metrics['f1'] > best_f1:
+                    best_f1 = metrics['f1']
+                    torch.save({
+                        'model': model.state_dict(),
+                        'optimizer': optimizer.state_dict(),
+                        'step': global_step
+                    }, save_path)
+
+        print("out of if")        
+    return global_step, model, best_f1
 
 def gelu(x):
     """Implementation of the gelu activation function.
@@ -567,3 +1613,143 @@ class BertForSpanAspectClassification(nn.Module):
         else:
             raise Exception
 
+from torch.optim import Optimizer
+
+def warmup_cosine(x, warmup=0.002):
+    if x < warmup:
+        return x/warmup
+    return 0.5 * (1.0 + torch.cos(math.pi * x))
+
+def warmup_constant(x, warmup=0.002):
+    if x < warmup:
+        return x/warmup
+    return 1.0
+
+def warmup_linear(x, warmup=0.002):
+    if x < warmup:
+        return x/warmup
+    return 1.0 - x
+
+SCHEDULES = {
+    'warmup_cosine':warmup_cosine,
+    'warmup_constant':warmup_constant,
+    'warmup_linear':warmup_linear,
+}
+
+class BERTAdam(Optimizer):
+    """Implements BERT version of Adam algorithm with weight decay fix (and no ).
+    Params:
+        lr: learning rate
+        warmup: portion of t_total for the warmup, -1  means no warmup. Default: -1
+        t_total: total number of training steps for the learning
+            rate schedule, -1  means constant learning rate. Default: -1
+        schedule: schedule to use for the warmup (see above). Default: 'warmup_linear'
+        b1: Adams b1. Default: 0.9
+        b2: Adams b2. Default: 0.999
+        e: Adams epsilon. Default: 1e-6
+        weight_decay_rate: Weight decay. Default: 0.01
+        max_grad_norm: Maximum norm for the gradients (-1 means no clipping). Default: 1.0
+    """
+    def __init__(self, params, lr, warmup=-1, t_total=-1, schedule='warmup_linear',
+                 b1=0.9, b2=0.999, e=1e-6, weight_decay_rate=0.01,
+                 max_grad_norm=1.0):
+        if not lr >= 0.0:
+            raise ValueError("Invalid learning rate: {} - should be >= 0.0".format(lr))
+        if schedule not in SCHEDULES:
+            raise ValueError("Invalid schedule parameter: {}".format(schedule))
+        if not 0.0 <= warmup < 1.0 and not warmup == -1:
+            raise ValueError("Invalid warmup: {} - should be in [0.0, 1.0[ or -1".format(warmup))
+        if not 0.0 <= b1 < 1.0:
+            raise ValueError("Invalid b1 parameter: {} - should be in [0.0, 1.0[".format(b1))
+        if not 0.0 <= b2 < 1.0:
+            raise ValueError("Invalid b2 parameter: {} - should be in [0.0, 1.0[".format(b2))
+        if not e >= 0.0:
+            raise ValueError("Invalid epsilon value: {} - should be >= 0.0".format(e))
+        defaults = dict(lr=lr, schedule=schedule, warmup=warmup, t_total=t_total,
+                        b1=b1, b2=b2, e=e, weight_decay_rate=weight_decay_rate,
+                        max_grad_norm=max_grad_norm)
+        super(BERTAdam, self).__init__(params, defaults)
+
+    def get_lr(self):
+        lr = []
+        for group in self.param_groups:
+            for p in group['params']:
+                state = self.state[p]
+                if len(state) == 0:
+                    return [0]
+                if group['t_total'] != -1:
+                    schedule_fct = SCHEDULES[group['schedule']]
+                    lr_scheduled = group['lr'] * schedule_fct(state['step']/group['t_total'], group['warmup'])
+                else:
+                    lr_scheduled = group['lr']
+                lr.append(lr_scheduled)
+        return lr
+
+    def step(self, closure=None):
+        """Performs a single optimization step.
+
+        Arguments:
+            closure (callable, optional): A closure that reevaluates the model
+                and returns the loss.
+        """
+        loss = None
+        if closure is not None:
+            loss = closure()
+
+        for group in self.param_groups:
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+                grad = p.grad.data
+                if grad.is_sparse:
+                    raise RuntimeError('Adam does not support sparse gradients, please consider SparseAdam instead')
+
+                state = self.state[p]
+
+                # State initialization
+                if len(state) == 0:
+                    state['step'] = 0
+                    # Exponential moving average of gradient values
+                    state['next_m'] = torch.zeros_like(p.data)
+                    # Exponential moving average of squared gradient values
+                    state['next_v'] = torch.zeros_like(p.data)
+
+                next_m, next_v = state['next_m'], state['next_v']
+                beta1, beta2 = group['b1'], group['b2']
+
+                # Add grad clipping
+                if group['max_grad_norm'] > 0:
+                    clip_grad_norm_(p, group['max_grad_norm'])
+
+                # Decay the first and second moment running average coefficient
+                # In-place operations to update the averages at the same time
+                next_m.mul_(beta1).add_(1 - beta1, grad)
+                next_v.mul_(beta2).addcmul_(1 - beta2, grad, grad)
+                update = next_m / (next_v.sqrt() + group['e'])
+
+                # Just adding the square of the weights to the loss function is *not*
+                # the correct way of using L2 regularization/weight decay with Adam,
+                # since that will interact with the m and v parameters in strange ways.
+                #
+                # Instead we want ot decay the weights in a manner that doesn't interact
+                # with the m/v parameters. This is equivalent to adding the square
+                # of the weights to the loss with plain (non-momentum) SGD.
+                if group['weight_decay_rate'] > 0.0:
+                    update += group['weight_decay_rate'] * p.data
+
+                if group['t_total'] != -1:
+                    schedule_fct = SCHEDULES[group['schedule']]
+                    lr_scheduled = group['lr'] * schedule_fct(state['step']/group['t_total'], group['warmup'])
+                else:
+                    lr_scheduled = group['lr']
+
+                update_with_lr = lr_scheduled * update
+                p.data.add_(-update_with_lr)
+
+                state['step'] += 1
+
+                # step_size = lr_scheduled * math.sqrt(bias_correction2) / bias_correction1
+                # bias_correction1 = 1 - beta1 ** state['step']
+                # bias_correction2 = 1 - beta2 ** state['step']
+
+        return loss
