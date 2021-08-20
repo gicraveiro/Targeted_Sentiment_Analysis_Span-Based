@@ -6,6 +6,7 @@ import numpy
 import math
 import random
 from transformers import AutoConfig, AdamW, get_linear_schedule_with_warmup
+from transformers.utils.dummy_pt_objects import LongformerForQuestionAnswering
 #from reused import BertConfig, BertForSpanAspectExtraction
 #from reused import run_train_epoch, read_eval_data, read_train_data, prepare_optimizer
 
@@ -173,7 +174,7 @@ batch_size = 8
 training_steps = epochs_qnt * math.ceil(len(tokenized_dataset)/batch_size)
 
 #num warmup steps is default value in glue.py
-#scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps = 0,num_training_steps = training_steps)
+scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps = 0,num_training_steps = training_steps)
 for epoch in range(0,epochs_qnt):
 
   input_ids, attention_mask, start_positions, end_positions = restart_sampling(batch_size=batch_size)
@@ -181,8 +182,67 @@ for epoch in range(0,epochs_qnt):
   train_loss = 0
   model.train() # only sets the training mode
 
-  for batch in input_ids:
-    print(batch)
+  for index,batch in enumerate(input_ids):
+    #print(batch)
+
+    input_ids = batch.to(device) # TO DO: CONFIRM THAT IT IS USEFUL TO MOVE THEM TO CPU, OR DELETE IF ITS NOT DOING ANYTHING
+    input_mask = attention_mask[index].to(device)
+    input_start = start_positions[index].to(device)
+    input_end = end_positions[index].to(device)
+
+    model.zero_grad() #clear previous gradients
+
+    # TRAINING STEP
+    #loss is returned because it is supervised learning based on the labels
+    # logits are the predicted outputs by the model before activation
+    loss, logits = model(input_ids, attention_mask=input_mask, input_start, input_end)
+    train_loss += loss.item()
+    loss.backward() # backward propagate
+
+    # Clip the norm of the gradients to 1.0.
+    # This is to help prevent the "exploding gradients" problem.
+    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+
+    optimizer.step() #update parameters 
+    scheduler.step() #update learning rate
+    #print(input_ids, input_mask, input_start, input_end)
+    #print(batch.to(device))
+
+  print("Total loss", train_loss)
+  print("Average loss", train_loss/math.ceil(len(tokenized_dataset)/batch_size))
+
+#EVALUATION
+
+  # PREPARE DATASET ON TEST
+  # need to send the right parameters!
+  input_ids, attention_mask, start_positions, end_positions = restart_sampling(batch_size=batch_size)
+
+  model.eval() #set to evaluation mode
+
+  predictions, start_labels, end_labels = [], []
+
+  for index, batch in enumerate(input_ids):
+
+    input_ids = batch.to(device) # TO DO: CONFIRM THAT IT IS USEFUL TO MOVE THEM TO CPU, OR DELETE IF ITS NOT DOING ANYTHING
+    input_mask = attention_mask[index].to(device)
+    input_start = start_positions[index].to(device)
+    input_end = end_positions[index].to(device)
+
+    with torch.no_grad():
+      outputs = model(input_ids, token_type_ids=None, attention_mask=input_mask) # check token_type_ids
+      
+    logits = outputs[0]
+
+    # Move logits and labels to CPU
+    logits = logits.detach().cpu().numpy()
+    start_ids = input_start.to('cpu').numpy()
+    end_ids = input_end.to('cpu').numpy()
+
+    predictions.append(logits)
+    start_labels.append(start_ids)
+    end_labels.append(end_ids)
+
+
 '''
 print("***** Preparing data *****")
 train_dataloader, num_train_steps = None, None
