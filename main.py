@@ -47,6 +47,7 @@ def restart_sampling(batch_size):
   input_ids = []
   start_positions = []
   end_positions = []
+  segment_ids = []
 
   for batch,labels in zip(random_batches_list,random_labels_list):
     max_len = 0
@@ -55,6 +56,7 @@ def restart_sampling(batch_size):
       batch_attention_mask = []
       batch_start_positions = []
       batch_end_positions = []
+      batch_segment_ids = []
 
       if (len(sentence) > max_len):
         max_len = len(sentence)
@@ -104,7 +106,7 @@ def restart_sampling(batch_size):
       sentence_start_positions += (num_zeros*[0]) # initial and final token must be added as extra zeros eve beyond the zeros that represent absence of tokens
       sentence_end_positions += (num_zeros*[0])
       sentence = sentence + [0] * num_zeros
-      
+      batch_segment_ids = max_len * [0]
       padded_batch.append(sentence)
       batch_attention_mask.append(sentence_attention_mask)
       batch_start_positions.append(sentence_start_positions)
@@ -115,7 +117,10 @@ def restart_sampling(batch_size):
     attention_mask.append(torch.tensor(batch_attention_mask))
     start_positions.append(torch.tensor(batch_start_positions))
     end_positions.append(torch.tensor(batch_end_positions))
-  segment_ids = [] # TO DO: FIND OUT WHAT IT IS AND CREATE IT 
+    segment_ids.append(torch.tensor(batch_segment_ids))
+
+  
+  
 
   return(input_ids,segment_ids,attention_mask, start_positions, end_positions)
 
