@@ -66,15 +66,12 @@ def restart_sampling():
         max_len = len(sentence)
     
     for sentence, sent_label in zip(batch,labels):
-      sentence_start_positions = []#[0]
-      sentence_end_positions = []#[0]
-      print(sentence_start_positions, sentence_end_positions)
+      sentence_start_positions = []
+      sentence_end_positions = []
       num_zeros = max_len - len(sentence)
       sentence_attention_mask = (len(sentence)*[1] + num_zeros*[0])
       sent_label_list = sent_label.split()
-      print(sent_label_list)
       
-      #token_i = 1
       label_i = -1
       #for index in enumerate(sent_label_list):
       for token_i,tok in enumerate(sentence):
@@ -84,29 +81,14 @@ def restart_sampling():
         else:
           tag = sent_label_list[label_i].split("=")
           tag = tag[1]
-        #  print(sent_label_list[label_i])
-        #print(sentence[index], ' ', tokenizer.convert_ids_to_tokens(sentence[index]), tag)
-        #print(sentence_start_positions)
-        #print(sentence_end_positions)
-        print(token_i)
-        print(sentence[token_i])
-        #print(tokenizer.convert_ids_to_tokens(sentence[token_i])[0:2], tokenizer.convert_ids_to_tokens(sentence[token_i]), tag)
+
         if (tokenizer.convert_ids_to_tokens(sentence[token_i])[0:2] == '##'):
-          #print(sentence_start_positions[-1])
-          #print(sentence_start_positions)
-          #print(tag)
-          #sentence_start_positions += [0]#[sentence_start_positions[-1]]
-          #sentence_end_positions += [0]#[sentence_end_positions[-1]]
           tag = sent_label_list[len(sent_label_list)-1].split("=")
           tag = tag[1]
           truncated_word = 1
-          #token_i += 1
           label_i -=1
-          #print(sentence_start_positions,'\n',sentence_end_positions,'\n', tokenizer.convert_ids_to_tokens(sentence[token_i]), tag)
-          #print("added")
         else:
-          truncated_word = 0
-       
+          truncated_word = 0   
 
         if ( tag != 'O' and truncated_word == 0 and (label_i <= 0 or sent_label_list[label_i-1].split("=")[1] == 'O')):
           sentence_start_positions += [1]
@@ -122,14 +104,17 @@ def restart_sampling():
           sentence_end_positions += [1]
         else:
           sentence_end_positions += [0]
-        #print(sentence[index], tokenizer.convert_ids_to_tokens(sentence[index]), sentence_start_positions[index], sentence_end_positions[index], tag)
-        #token_i += 1
+
         label_i += 1
 
-      sentence_start_positions += (num_zeros*[0])+[0] # initial and final token must be added as extra zeros eve beyond the zeros that represent absence of tokens
-      sentence_end_positions += (num_zeros*[0])+[0]
+      sentence_start_positions += (num_zeros*[0]) # initial and final token must be added as extra zeros eve beyond the zeros that represent absence of tokens
+      sentence_end_positions += (num_zeros*[0])
       sentence = sentence + [0] * num_zeros
-      #print(sentence, attention_mask, sentence_start_positions, sentence_end_positions)
+      print(sentence, len(sentence))
+      print(sentence_attention_mask, len(sentence_attention_mask))
+      print(sentence_start_positions, len(sentence_start_positions))
+      print(sentence_end_positions, len(sentence_end_positions))
+      
       padded_batch.append(sentence)
       batch_attention_mask.append(sentence_attention_mask)
       batch_start_positions.append(sentence_start_positions)
@@ -176,7 +161,7 @@ model = BertForSpanAspectExtraction(bert_config)
 #print("Loading model from pretrained checkpoint: {}".format("bert/pytorch_model.bin"))
 device = "cpu"
 model.to(device)
-
+'''
 print("***** Preparing data *****")
 train_dataloader, num_train_steps = None, None
 eval_examples, eval_features, eval_dataloader = None, None, None
@@ -185,7 +170,7 @@ train_batch_size = 4
 # their tokenizer was the FullTokenizer but let's head it with this one for now and see what happens
 print("***** Preparing training *****")
 train_dataloader, num_train_steps = read_train_data(tokenizer)
-'''
+
 print("***** Preparing evaluation *****")
 eval_examples, eval_features, eval_dataloader = read_eval_data(tokenizer)
 print("***** Preparing optimizer *****")
