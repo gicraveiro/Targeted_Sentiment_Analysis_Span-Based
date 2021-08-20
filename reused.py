@@ -181,6 +181,7 @@ def convert_absa_data(dataset, verbose_logging=False):
             assert len(term_texts) == len(starts)
             assert len(term_texts) == len(new_polarities)
             example = SemEvalExample(str(i), words, term_texts, starts, ends, new_polarities)
+            print(example)
             examples.append(example)
             if i < 50 and verbose_logging:
                 print(example)
