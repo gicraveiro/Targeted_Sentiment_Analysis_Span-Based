@@ -115,8 +115,9 @@ def restart_sampling(batch_size):
     attention_mask.append(torch.tensor(batch_attention_mask))
     start_positions.append(torch.tensor(batch_start_positions))
     end_positions.append(torch.tensor(batch_end_positions))
+  segment_ids = [] # TO DO: FIND OUT WHAT IT IS AND CREATE IT 
 
-  return(input_ids,attention_mask, start_positions, end_positions)
+  return(input_ids,segment_ids,attention_mask, start_positions, end_positions)
 
 #config = AutoConfig.from_pretrained(pretrained_model_name_or_path='distilbert-base-uncased')#,num_labels=2)
 
@@ -177,7 +178,7 @@ training_steps = epochs_qnt * math.ceil(len(tokenized_dataset)/batch_size)
 scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps = 0,num_training_steps = training_steps)
 for epoch in range(0,epochs_qnt):
 
-  input_ids, attention_mask, start_positions, end_positions = restart_sampling(batch_size=batch_size)
+  input_ids, segment_ids, attention_mask, start_positions, end_positions = restart_sampling(batch_size=batch_size)
 
   train_loss = 0
   model.train() # only sets the training mode
@@ -195,7 +196,10 @@ for epoch in range(0,epochs_qnt):
     # TRAINING STEP
     #loss is returned because it is supervised learning based on the labels
     # logits are the predicted outputs by the model before activation
-    loss, logits = model(input_ids, attention_mask=input_mask, input_start, input_end)
+
+    # TO DO: find out what are segment_ids and create them!
+    
+    loss, logits = model(input_ids, segment_ids, input_mask, input_start, input_end)
     train_loss += loss.item()
     loss.backward() # backward propagate
 
