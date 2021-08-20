@@ -3,11 +3,13 @@ import torch
 import transformers # pytorch transformers
 import pandas
 import numpy
+import math
 import random
+from transformers import AutoConfig, AdamW, get_linear_schedule_with_warmup
 #from reused import BertConfig, BertForSpanAspectExtraction
 #from reused import run_train_epoch, read_eval_data, read_train_data, prepare_optimizer
 
-def restart_sampling():
+def restart_sampling(batch_size):
   # TOKENIZATION
   tokenized_dataset = dataframe['text'].apply((lambda x: tokenizer.encode(x, add_special_tokens=True)))#, max_length=100, truncation=True, padding=False''' )
   labels_list = dataframe['labels'].to_list()
@@ -16,7 +18,7 @@ def restart_sampling():
 
   # RANDOM BATCH REORDERING
 
-  batch_size = 8
+  
   dynamic_dataframe = tokenized_dataset.copy(deep=True) #copy of the sentences column of the dataset to delete it parts
   dynamic_labels = dataframe['labels']
   random_batches_list = []
@@ -115,6 +117,8 @@ def restart_sampling():
 
   return(input_ids,attention_mask, start_positions, end_positions)
 
+#config = AutoConfig.from_pretrained(pretrained_model_name_or_path='distilbert-base-uncased')#,num_labels=2)
+
 qa_model_class, tokenizer_class, pretrained_weights = (transformers.DistilBertForQuestionAnswering, transformers.DistilBertTokenizer, 'distilbert-base-uncased') # for QA 'distilbert-base-uncased-distilled-squad'
 
 # Load pretrained model/tokenizer
@@ -131,7 +135,12 @@ new_index_list = dataframe['text'].str.len().sort_values().index
 dataframe = dataframe.reindex(new_index_list) # sorted dataframe by length of the sentence
 dataframe = dataframe.reset_index(drop=True)
 
-input_ids, attention_mask, start_positions, end_positions = restart_sampling()
+#input_ids, attention_mask, start_positions, end_positions = restart_sampling()
+
+#tokens = input_ids[torch.argmax(start_positions): torch.argmax(end_positions) + 1]
+#answerTokens = tokenizer.convert_ids_to_tokens(tokens, skip_special_tokens=True)
+#answer_test = tokenizer.convert_tokens_to_string(answerTokens)
+#print(answer_test)
 
 # DATA PREPROCESSED IN BERT FORMAT 
 #print(input_ids)
@@ -149,8 +158,26 @@ input_ids, attention_mask, start_positions, end_positions = restart_sampling()
 # verificação de caminho válido era aqui
 #model = bert_load_state_dict(model, torch.load("bert/pytorch_model.bin", map_location='cpu')) # TO DO: EXTRACT FUNCTION FROM PAPER CODE
 #print("Loading model from pretrained checkpoint: {}".format("bert/pytorch_model.bin"))
-#device = "cpu"
-#model.to(device)
+
+#device = torch.device('cuda') #device = "cpu"
+device = "cpu"
+model.to(device)
+
+optimizer = AdamW(model.parameters(),
+                  lr = 2e-5, # This is the value the paper used
+                  eps = 1e-8 # args.adam_epsilon  - default is 1e-8.
+                )
+epochs_qnt = 1 # TO DO: CHANGE TO 3
+batch_size = 8
+
+training_steps = epochs_qnt * math.ceil(len(tokenized_dataset)/batch_size)
+
+#num warmup steps is default value in glue.py
+#scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps = 0,num_training_steps = training_steps)
+for epoch in range(0,epochs_qnt):
+
+  input_ids, attention_mask, start_positions, end_positions = restart_sampling(batch_size=batch_size)
+  print(math.ceil(len(tokenized_dataset)/batch_size),'vs',len(input_ids))
 '''
 print("***** Preparing data *****")
 train_dataloader, num_train_steps = None, None
