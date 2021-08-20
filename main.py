@@ -133,19 +133,24 @@ dataframe = dataframe.reset_index(drop=True)
 
 input_ids, attention_mask, start_positions, end_positions = restart_sampling()
 
+# DATA PREPROCESSED IN BERT FORMAT 
+#print(input_ids)
+#print(attention_mask)
+#print(start_positions)
+#print(end_positions)
 
 # REUSED FROM PAPER 
 
-bert_config = BertConfig.from_json_file("bert/bert_config.json") # include bert directory ONLY in local repository
+#bert_config = BertConfig.from_json_file("bert/bert_config.json") # include bert directory ONLY in local repository
 
 # tokenization as included in the paper code...
 #tokenizer = tokenizer.FullTokenizer(vocab_file="bert/vocab_file.txt", do_lower_case=True)
-model = BertForSpanAspectExtraction(bert_config)
+#model = BertForSpanAspectExtraction(bert_config)
 # verificação de caminho válido era aqui
 #model = bert_load_state_dict(model, torch.load("bert/pytorch_model.bin", map_location='cpu')) # TO DO: EXTRACT FUNCTION FROM PAPER CODE
 #print("Loading model from pretrained checkpoint: {}".format("bert/pytorch_model.bin"))
-device = "cpu"
-model.to(device)
+#device = "cpu"
+#model.to(device)
 '''
 print("***** Preparing data *****")
 train_dataloader, num_train_steps = None, None
