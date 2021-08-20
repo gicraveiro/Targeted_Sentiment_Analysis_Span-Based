@@ -4,7 +4,7 @@ import transformers # pytorch transformers
 import pandas
 import numpy
 import random
-from reused import BertConfig, BertForSpanAspectExtraction
+#from reused import BertConfig, BertForSpanAspectExtraction
 #from reused import run_train_epoch, read_eval_data, read_train_data, prepare_optimizer
 
 def restart_sampling():
@@ -115,11 +115,11 @@ def restart_sampling():
 
   return(input_ids,attention_mask, start_positions, end_positions)
 
-model_class, tokenizer_class, pretrained_weights = (transformers.DistilBertModel, transformers.DistilBertTokenizer, 'distilbert-base-uncased')
+qa_model_class, tokenizer_class, pretrained_weights = (transformers.DistilBertForQuestionAnswering, transformers.DistilBertTokenizer, 'distilbert-base-uncased') # for QA 'distilbert-base-uncased-distilled-squad'
 
 # Load pretrained model/tokenizer
 tokenizer = tokenizer_class.from_pretrained(pretrained_weights)
-#model = model_class.from_pretrained(pretrained_weights) # TO DO: FIGURE OUT THE RIGHT ONE HERE
+model = qa_model_class.from_pretrained(pretrained_weights) 
 
 # Creates a table separating sentences from associated token tags
 dataframe = pandas.read_csv("data/laptop14_train.txt", delimiter='####', header=None, names=['text','labels'],engine='python')
