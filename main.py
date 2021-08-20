@@ -4,6 +4,8 @@ import transformers # pytorch transformers
 import pandas
 import numpy
 import random
+from reused import BertConfig, BertForSpanAspectExtraction
+#from reused import run_train_epoch, read_eval_data, read_train_data, prepare_optimizer
 
 def restart_sampling():
   # TOKENIZATION
