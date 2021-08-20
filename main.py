@@ -21,9 +21,6 @@ def restart_sampling():
   batch_size = 8
   dynamic_dataframe = tokenized_dataset.copy(deep=True) #copy of the sentences column of the dataset to delete it parts
   dynamic_labels = dataframe['labels']
-  #print(dynamic_labels, type(dynamic_labels))
-  #dynamic_labels = tokenized_dataframe['labels'].copy(deep=True)
-  #print(dynamic_labels)
   random_batches_list = []
   random_labels_list = []
 
@@ -42,10 +39,6 @@ def restart_sampling():
 
     dynamic_dataframe.drop(dynamic_dataframe.index[random_index:random_index+batch_size], inplace=True)
     dynamic_labels.drop(dynamic_labels.index[random_index:random_index+batch_size], inplace=True)
-
-    #print(batch, batch_labels)
-  #print(dynamic_dataframe)
-  #print(dynamic_labels)
 
   # PADDING AND ATTENTION MASK WITH SMART BATCHING
 
@@ -110,10 +103,6 @@ def restart_sampling():
       sentence_start_positions += (num_zeros*[0]) # initial and final token must be added as extra zeros eve beyond the zeros that represent absence of tokens
       sentence_end_positions += (num_zeros*[0])
       sentence = sentence + [0] * num_zeros
-      print(sentence, len(sentence))
-      print(sentence_attention_mask, len(sentence_attention_mask))
-      print(sentence_start_positions, len(sentence_start_positions))
-      print(sentence_end_positions, len(sentence_end_positions))
       
       padded_batch.append(sentence)
       batch_attention_mask.append(sentence_attention_mask)
@@ -129,7 +118,6 @@ def restart_sampling():
   return(input_ids,attention_mask, start_positions, end_positions)
 
 model_class, tokenizer_class, pretrained_weights = (transformers.DistilBertModel, transformers.DistilBertTokenizer, 'distilbert-base-uncased')
-#model_class, tokenizer_class, pretrained_weights = (transformers.BertModel, transformers.BertTokenizer, 'bert-base-uncased')
 
 # Load pretrained model/tokenizer
 tokenizer = tokenizer_class.from_pretrained(pretrained_weights)
@@ -137,9 +125,8 @@ tokenizer = tokenizer_class.from_pretrained(pretrained_weights)
 
 # Creates a table separating sentences from associated token tags
 dataframe = pandas.read_csv("data/laptop14_train.txt", delimiter='####', header=None, names=['text','labels'],engine='python')
-#print(dataframe['labels'][0])
 tokenized_dataset = dataframe['text'].apply((lambda x: tokenizer.encode(x, add_special_tokens=True)))
-#print(tokenized_dataset[0])
+
 # Sorts table and transforms each word to the code of the token
 
 new_index_list = dataframe['text'].str.len().sort_values().index
