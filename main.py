@@ -177,7 +177,12 @@ training_steps = epochs_qnt * math.ceil(len(tokenized_dataset)/batch_size)
 for epoch in range(0,epochs_qnt):
 
   input_ids, attention_mask, start_positions, end_positions = restart_sampling(batch_size=batch_size)
-  print(math.ceil(len(tokenized_dataset)/batch_size),'vs',len(input_ids))
+
+  train_loss = 0
+  model.train() # only sets the training mode
+
+  for batch in input_ids:
+    print(batch)
 '''
 print("***** Preparing data *****")
 train_dataloader, num_train_steps = None, None
