@@ -211,17 +211,17 @@ for batch_index,(input_ids, input_mask, input_start, input_end) in enumerate(zip
   start_logits = outputs.start_logits
   end_logits = outputs.end_logits
 
+
   start_logits = start_logits.numpy()
   end_logits = end_logits.numpy()
-  pred_start = numpy.max(start_logits)#numpy.where(start_logits == numpy.max(start_logits))
-  pred_end = numpy.max(end_logits)#numpy.where(end_logits == numpy.max(end_logits))
-  #start_logits = start_logits.tolist()
-  #end_logits = end_logits.tolist()
-  pred_start = (list(start_logits).index(pred_start)).any()
-  pred_end = (list(end_logits).index(pred_end)).any()
+  pred_start = numpy.max(start_logits)
+  pred_end = numpy.max(end_logits)
+  pred_start = numpy.nonzero(start_logits == pred_start)
+  pred_end = numpy.nonzero(end_logits == pred_end)
 
-  predicted_starts.append(pred_start[0])
-  predicted_ends.append(pred_end[0])
+
+  predicted_starts.append(pred_start[0][0])
+  predicted_ends.append(pred_end[0][0])
 
   real_starts.append(input_start)
   real_ends.append(input_end)
