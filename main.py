@@ -1,13 +1,24 @@
-#import bert.tokenization as tokenizer
 import torch
 import transformers # pytorch transformers
 import pandas
-import numpy
+import math
 import random
-from reused import BertConfig, BertForSpanAspectExtraction
-#from reused import run_train_epoch, read_eval_data, read_train_data, prepare_optimizer
+import time
+from transformers import AutoConfig, AdamW, get_linear_schedule_with_warmup
+import numpy
 
-def restart_sampling():
+def restart_sampling(batch_size, input_file):
+
+  # Creates a table separating sentences from associated token tags
+  dataframe = pandas.read_csv(input_file, delimiter='####', header=None, names=['text','labels'],engine='python')
+
+  tokenized_dataset = dataframe['text'].apply((lambda x: tokenizer.encode(x, add_special_tokens=True)))
+
+  # Sorts table and transforms each word to the code of the token
+
+  new_index_list = dataframe['text'].str.len().sort_values().index
+  dataframe = dataframe.reindex(new_index_list) # sorted dataframe by length of the sentence
+  dataframe = dataframe.reset_index(drop=True)
   # TOKENIZATION
   tokenized_dataset = dataframe['text'].apply((lambda x: tokenizer.encode(x, add_special_tokens=True)))#, max_length=100, truncation=True, padding=False''' )
   labels_list = dataframe['labels'].to_list()
@@ -16,7 +27,7 @@ def restart_sampling():
 
   # RANDOM BATCH REORDERING
 
-  batch_size = 8
+  
   dynamic_dataframe = tokenized_dataset.copy(deep=True) #copy of the sentences column of the dataset to delete it parts
   dynamic_labels = dataframe['labels']
   random_batches_list = []
@@ -44,6 +55,7 @@ def restart_sampling():
   input_ids = []
   start_positions = []
   end_positions = []
+  #segment_ids = []
 
   for batch,labels in zip(random_batches_list,random_labels_list):
     max_len = 0
@@ -52,6 +64,7 @@ def restart_sampling():
       batch_attention_mask = []
       batch_start_positions = []
       batch_end_positions = []
+      #batch_segment_ids = []
 
       if (len(sentence) > max_len):
         max_len = len(sentence)
@@ -64,145 +77,175 @@ def restart_sampling():
       sent_label_list = sent_label.split()
       
       label_i = -1
+      finished = 0
       #for index in enumerate(sent_label_list):
       for token_i,tok in enumerate(sentence):
-        
+        #print("oi")
         if label_i < 0 or label_i >= len(sent_label_list):
           tag = 'O'    
         else:
           tag = sent_label_list[label_i].split("=")
           tag = tag[1]
 
-        if (tokenizer.convert_ids_to_tokens(sentence[token_i])[0:2] == '##'):
-          tag = sent_label_list[len(sent_label_list)-1].split("=")
+        end_index = token_i
+        if( tag != 'O'):
+          sentence_start_positions = [token_i]
+          sentence_end_positions = [token_i]
+        while(tag != 'O' and label_i < len(sent_label_list)):
+          tag = sent_label_list[label_i].split("=")
           tag = tag[1]
-          truncated_word = 1
-          label_i -=1
-        else:
-          truncated_word = 0   
 
-        if ( tag != 'O' and truncated_word == 0 and (label_i <= 0 or sent_label_list[label_i-1].split("=")[1] == 'O')):
-          sentence_start_positions += [1]
-        else:
-          sentence_start_positions += [0]
+          if(tag == 'O'):
+            sentence_end_positions = [end_index-1]
+            finished = 1
+          label_i += 1
+          end_index += 1
+          
+        if (finished == 1):
+          break
+        label_i +=1
         
-        if(label_i+1 >= len(sent_label_list)):
-          if(tag == 'O' or token_i+1 >= len(sentence)): # list of tokens ended
-            sentence_end_positions += [0]
-          else: 
-            sentence_end_positions += [1]
-        elif ( tag != 'O' and ( (sent_label_list[label_i+1].split("=")[1] == 'O' and tokenizer.convert_ids_to_tokens(sentence[token_i+1])[0:2] != '##' ) )): #decision on how to label: words or tokens
-          sentence_end_positions += [1]
-        else:
-          sentence_end_positions += [0]
-
-        label_i += 1
-
-      sentence_start_positions += (num_zeros*[0]) # initial and final token must be added as extra zeros eve beyond the zeros that represent absence of tokens
-      sentence_end_positions += (num_zeros*[0])
+      if(sentence_start_positions == []):
+        sentence_start_positions = [-1]
+        sentence_end_positions = [-1]
       sentence = sentence + [0] * num_zeros
-      
+      #batch_segment_ids = max_len * [0]
       padded_batch.append(sentence)
       batch_attention_mask.append(sentence_attention_mask)
-      batch_start_positions.append(sentence_start_positions)
-      batch_end_positions.append(sentence_end_positions)
-
+      batch_start_positions += sentence_start_positions
+      batch_end_positions += sentence_end_positions
     
-    input_ids.append(torch.tensor(padded_batch))
-    attention_mask.append(torch.tensor(batch_attention_mask))
-    start_positions.append(torch.tensor(batch_start_positions))
-    end_positions.append(torch.tensor(batch_end_positions))
+    input_ids.append(torch.tensor(padded_batch, dtype=torch.long))
+    attention_mask.append(torch.tensor(batch_attention_mask, dtype=torch.long))
+    start_positions.append(torch.tensor(batch_start_positions, dtype=torch.long))
+    end_positions.append(torch.tensor(batch_end_positions, dtype=torch.long))
+    #segment_ids.append(torch.tensor(batch_segment_ids, dtype=torch.long))
 
   return(input_ids,attention_mask, start_positions, end_positions)
 
-model_class, tokenizer_class, pretrained_weights = (transformers.DistilBertModel, transformers.DistilBertTokenizer, 'distilbert-base-uncased')
+initial_time = time.time()
+
+config = AutoConfig.from_pretrained(pretrained_model_name_or_path='distilbert-base-uncased')
+#config = BertConfig(vocab_size=30522)
+#config = BertConfig.from_json_file("bert/bert_config.json") # include bert directory ONLY in local repository
+
+qa_model_class, tokenizer_class, pretrained_weights = (transformers.DistilBertForQuestionAnswering, transformers.DistilBertTokenizer, 'distilbert-base-uncased') 
 
 # Load pretrained model/tokenizer
 tokenizer = tokenizer_class.from_pretrained(pretrained_weights)
-#model = model_class.from_pretrained(pretrained_weights) # TO DO: FIGURE OUT THE RIGHT ONE HERE
+model = qa_model_class.from_pretrained(pretrained_weights) 
 
-# Creates a table separating sentences from associated token tags
-dataframe = pandas.read_csv("data/laptop14_train.txt", delimiter='####', header=None, names=['text','labels'],engine='python')
-tokenized_dataset = dataframe['text'].apply((lambda x: tokenizer.encode(x, add_special_tokens=True)))
+with open('data/laptop14_train.txt') as file:
+  train_dataset_len = sum(1 for line in file)
+# TRAINING CONFIGURATIONS
 
-# Sorts table and transforms each word to the code of the token
+epochs_qnt = 3
+batch_size = 8
+training_steps = epochs_qnt * math.ceil(train_dataset_len/batch_size)
 
-new_index_list = dataframe['text'].str.len().sort_values().index
-dataframe = dataframe.reindex(new_index_list) # sorted dataframe by length of the sentence
-dataframe = dataframe.reset_index(drop=True)
+# Setting optimizer
+ # This is the learning rate the paper used # args.adam_epsilon  - default is 1e-8.
+optimizer = AdamW(model.parameters(),lr = 2e-5,eps = 1e-8  ) #change learning rate
 
-input_ids, attention_mask, start_positions, end_positions = restart_sampling()
+device = "cpu"
+model.to(device)
 
-# DATA PREPROCESSED IN BERT FORMAT 
-#print(input_ids)
-#print(attention_mask)
-#print(start_positions)
-#print(end_positions)
+# TRAINING STEP
 
-# REUSED FROM PAPER 
+model.train() # only sets the training mode
+#num warmup steps is default value in glue.py
+scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps = 0,num_training_steps = training_steps)
+for epoch in range(0,epochs_qnt):
+  
+  train_loss = 0.0
+  input_ids,  attention_mask, start_positions, end_positions = restart_sampling(batch_size, "data/laptop14_train.txt")
 
-#bert_config = BertConfig.from_json_file("bert/bert_config.json") # include bert directory ONLY in local repository
+  for batch_index,(input_ids, input_mask, input_start, input_end) in enumerate(zip(input_ids, attention_mask, start_positions, end_positions)):
 
-# tokenization as included in the paper code...
-#tokenizer = tokenizer.FullTokenizer(vocab_file="bert/vocab_file.txt", do_lower_case=True)
-#model = BertForSpanAspectExtraction(bert_config)
-# verificação de caminho válido era aqui
-#model = bert_load_state_dict(model, torch.load("bert/pytorch_model.bin", map_location='cpu')) # TO DO: EXTRACT FUNCTION FROM PAPER CODE
-#print("Loading model from pretrained checkpoint: {}".format("bert/pytorch_model.bin"))
-#device = "cpu"
-#model.to(device)
-'''
-print("***** Preparing data *****")
-train_dataloader, num_train_steps = None, None
-eval_examples, eval_features, eval_dataloader = None, None, None
-train_batch_size = 4 
+    model.zero_grad() #clear previous gradients
 
-# their tokenizer was the FullTokenizer but let's head it with this one for now and see what happens
-print("***** Preparing training *****")
-train_dataloader, num_train_steps = read_train_data(tokenizer)
+    #loss is returned because it is supervised learning based on the labels
+    # logits are the predicted outputs by the model before activation
+    outputs = model(input_ids=input_ids,  attention_mask=input_mask, start_positions=input_start, end_positions=input_end)
+    loss = outputs.loss
+    
+    loss.backward() # backward propagate
+    train_loss += loss.item()
 
-print("***** Preparing evaluation *****")
-eval_examples, eval_features, eval_dataloader = read_eval_data(tokenizer)
-print("***** Preparing optimizer *****")
-optimizer, param_optimizer = prepare_optimizer(model, num_train_steps)
+    # Clip the norm of the gradients to 1.0.
+    # This is to help prevent the "exploding gradients" problem.
+    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 
-print("***** Running training *****")
-best_f1 = 0
-save_checkpoints_steps = int(num_train_steps / (5 * 3)) # 3 = num_train_epochs
-start_save_steps = int(num_train_steps * 0.5) # 0.5 = save proportion
-model.train()
-global_step = 0
-'''
+    optimizer.step() #update parameters 
+    scheduler.step()
+    #model.zero_grad()
 
-#for epoch in range(3):
-#  print("***** Epoch: {} *****".format(epoch+1))
-#  global_step, model, best_f1 = run_train_epoch(global_step, model, param_optimizer, train_dataloader, eval_examples, eval_features, eval_dataloader, optimizer, 0, device, 'out/extract/01/performance.txt', 'out/extract/01/checkpoint.pth.tar', save_checkpoints_steps, start_save_steps, best_f1) #n_gpu = 0
-'''
-print("***** Running prediction *****")
-        if eval_dataloader is None:
-            eval_examples, eval_features, eval_dataloader = read_eval_data(args, tokenizer, logger)
+training_time = time.time() - initial_time
+print("Congrats! Training concluded successfully!\n")
+print("Average loss", train_loss/math.ceil(train_dataset_len/batch_size))
+print("Training time in minutes:", training_time/60)
 
-        # restore from best checkpoint
-        if save_path and os.path.isfile(save_path) and args.do_train:
-            checkpoint = torch.load(save_path)
-            model.load_state_dict(checkpoint['model'])
-            step = checkpoint['step']
-            logger.info("Loading model from finetuned checkpoint: '{}' (step {})"
-                        .format(save_path, step))
+#EVALUATION
 
-        model.eval()
-        metrics = evaluate(args, model, device, eval_examples, eval_features, eval_dataloader, logger, write_pred=True)
-        f = open(log_path, "a")
-        print("threshold: {}, step: {}, P: {:.4f}, R: {:.4f}, F1: {:.4f} (common: {}, retrieved: {}, relevant: {})"
-              .format(args.logit_threshold, global_step, metrics['p'], metrics['r'],
-                      metrics['f1'], metrics['common'], metrics['retrieved'], metrics['relevant']), file=f)
-        print(" ", file=f)
-        f.close()
-        '''
+# PREPARE DATASET ON TEST
+input_ids, attention_mask, start_positions, end_positions = restart_sampling(batch_size, "data/laptop14_test.txt")
 
+model.eval() # set to evaluation mode
 
-#print(input_ids)
-#print(attention_mask)
+predicted_starts, predicted_ends, real_starts, real_ends = [], [], [], []
+count = 0
+real_count, pred_count = 0,0
+
+for batch_index,(input_ids, input_mask, input_start, input_end) in enumerate(zip(input_ids, attention_mask, start_positions, end_positions)):
+
+  with torch.no_grad():
+    outputs = model(input_ids, attention_mask=input_mask) 
+
+  start_logits = outputs.start_logits
+  end_logits = outputs.end_logits
+
+  for logit in start_logits:
+    start_logits = logit.numpy()
+    end_logits = logit.numpy()
+    pred_start = numpy.max(start_logits)
+    pred_end = numpy.max(end_logits)
+    pred_start = numpy.nonzero(start_logits == pred_start)
+    pred_end = numpy.nonzero(end_logits == pred_end)
+
+    predicted_starts.append(pred_start[0][0])
+    predicted_ends.append(pred_end[0][0])
+
+  real_starts.append(input_start)
+  real_ends.append(input_end)
+
+eval_time = time.time() - training_time - initial_time
+print('Congrats! Evaluation concluded successfully!\n')
+print('Evaluation time in seconds:', eval_time)
+
+total_real_starts = numpy.concatenate(real_starts, axis=0)
+total_real_ends = numpy.concatenate(real_ends, axis=0)
+total_real_starts[total_real_starts == -1] = 0
+total_real_ends[total_real_ends == -1] = 0
+total_real_starts = list(total_real_starts)
+total_real_ends = list(total_real_ends)
+
+true_positives = 0
+for index, (pred_start, real_start, pred_end, real_end) in enumerate(zip(predicted_starts,total_real_starts, predicted_ends, total_real_ends)):
+  if(predicted_starts[index] == total_real_starts[index] and predicted_ends[index] == total_real_ends[index]):
+    true_positives += 1
+
+total_time = time.time() - initial_time
+print("Total true positives - both span start and end positions:", true_positives)
+print("Accuracy", true_positives/len(predicted_starts))
+print("Total time in minutes:", total_time/60)
+print("Parameters: ")
+print("Number of epochs:", epochs_qnt)
+print("Batch size:", batch_size)
+print("DistilBERT used instead of BERT")
+print("Number of hidden layers: 4")
+print("Hidden size: 312")
+print("Intermediate size: 1200")
+# TO DO: report in a more organized way the EFFICIENCY based on size and time
 
 '''
 Acknowledgments
