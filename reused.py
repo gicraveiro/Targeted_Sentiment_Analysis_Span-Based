@@ -1718,9 +1718,11 @@ class BERTAdam(Optimizer):
                 beta1, beta2 = group['b1'], group['b2']
 
                 # Add grad clipping
+                #try:
                 if group['max_grad_norm'] > 0:
-                    clip_grad_norm_(p, group['max_grad_norm'])
-
+                    clip_grad_norm_(p, group['max_grad_norm'], error_if_nonfinite=True)
+            #except:
+                #    print("error clip grad norm")
                 # Decay the first and second moment running average coefficient
                 # In-place operations to update the averages at the same time
                 next_m.mul_(beta1).add_(1 - beta1, grad)
