@@ -8,7 +8,7 @@ import random
 import os
 from transformers import AutoConfig, AdamW, get_linear_schedule_with_warmup#BertConfig
 from transformers.utils.dummy_pt_objects import LongformerForQuestionAnswering
-from reused import BertConfig, BertForSpanAspectExtraction, BERTAdam, evaluate
+#from reused import BertConfig, BertForSpanAspectExtraction, BERTAdam, evaluate
 #from reused import run_train_epoch, read_eval_data, read_train_data, prepare_optimizer
 
 def restart_sampling(batch_size):
@@ -70,49 +70,47 @@ def restart_sampling(batch_size):
       sent_label_list = sent_label.split()
       
       label_i = -1
+      finished = 0
       #for index in enumerate(sent_label_list):
       for token_i,tok in enumerate(sentence):
-        
+        #print("oi")
         if label_i < 0 or label_i >= len(sent_label_list):
           tag = 'O'    
         else:
           tag = sent_label_list[label_i].split("=")
           tag = tag[1]
 
-        if (tokenizer.convert_ids_to_tokens(sentence[token_i])[0:2] == '##'):
-          tag = sent_label_list[len(sent_label_list)-1].split("=")
+        end_index = token_i
+        if( tag != 'O'):
+          sentence_start_positions = [token_i]
+          sentence_end_positions = [token_i]
+        while(tag != 'O' and label_i < len(sent_label_list)):
+          tag = sent_label_list[label_i].split("=")
           tag = tag[1]
-          truncated_word = 1
-          label_i -=1
-        else:
-          truncated_word = 0   
 
-        if ( tag != 'O' and truncated_word == 0 and (label_i <= 0 or sent_label_list[label_i-1].split("=")[1] == 'O')):
-          sentence_start_positions += [1]
-        else:
-          sentence_start_positions += [0]
+          if(tag == 'O'):
+            sentence_end_positions = [end_index-1]
+            finished = 1
+          label_i += 1
+          end_index += 1
+          
+        if (finished == 1):
+          break
+        label_i +=1
         
-        if(label_i+1 >= len(sent_label_list)):
-          if(tag == 'O' or token_i+1 >= len(sentence)): # list of tokens ended
-            sentence_end_positions += [0]
-          else: 
-            sentence_end_positions += [1]
-        elif ( tag != 'O' and ( (sent_label_list[label_i+1].split("=")[1] == 'O' and tokenizer.convert_ids_to_tokens(sentence[token_i+1])[0:2] != '##' ) )): #decision on how to label: words or tokens
-          sentence_end_positions += [1]
-        else:
-          sentence_end_positions += [0]
-
-        label_i += 1
-
-      sentence_start_positions += (num_zeros*[0]) # initial and final token must be added as extra zeros eve beyond the zeros that represent absence of tokens
-      sentence_end_positions += (num_zeros*[0])
+      if(sentence_start_positions == []):
+        sentence_start_positions = [-1]
+        sentence_end_positions = [-1]
+      #sentence_start_positions += (num_zeros*[0]) # initial and final token must be added as extra zeros eve beyond the zeros that represent absence of tokens
+      #sentence_end_positions += (num_zeros*[0])
       sentence = sentence + [0] * num_zeros
       batch_segment_ids = max_len * [0]
       padded_batch.append(sentence)
       batch_attention_mask.append(sentence_attention_mask)
-      batch_start_positions.append(sentence_start_positions)
-      batch_end_positions.append(sentence_end_positions)
-
+      #batch_start_positions.append(sentence_start_positions)
+      #batch_end_positions.append(sentence_end_positions)
+      batch_start_positions += sentence_start_positions
+      batch_end_positions += sentence_end_positions
     
     input_ids.append(torch.tensor(padded_batch, dtype=torch.long))
     attention_mask.append(torch.tensor(batch_attention_mask, dtype=torch.long))
@@ -121,44 +119,27 @@ def restart_sampling(batch_size):
     segment_ids.append(torch.tensor(batch_segment_ids, dtype=torch.long))
     #print("start", torch.tensor(batch_start_positions).shape)
     #print("end", torch.tensor(batch_end_positions).shape)
+    #print(start_positions)
+    #print(end_positions)
 
   
   
 
   return(input_ids,segment_ids,attention_mask, start_positions, end_positions)
 
-def custom_optimizer(model, num_train_steps):
-  param_optimizer = list(model.named_parameters())
-  #print(param_optimizer)
-  no_decay = ['bias', 'LayerNorm']
-  optimizer_grouped_parameters = [
-        {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
-        {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}]
-  optimizer = BERTAdam(optimizer_grouped_parameters,
-                        lr=2e-5,
-                        warmup=0.1,
-                        t_total=num_train_steps)
-  return optimizer, param_optimizer
 
-#os.makedirs('output')
-save_path = os.path.join('output', 'checkpoint.pth.tar')
-log_path = os.path.join('output', 'performance.txt')
-network_path = os.path.join('output', 'network.txt')
-parameter_path = os.path.join('output', 'parameter.txt')
-
-#config = AutoConfig.from_pretrained(pretrained_model_name_or_path='distilbert-base-uncased')#,num_labels=2)
-#bert_config = BertConfig.from_json_file(args.bert_config_file)
+config = AutoConfig.from_pretrained(pretrained_model_name_or_path='distilbert-base-uncased')#,num_labels=2)
 #config = BertConfig(vocab_size=30522)
-config = BertConfig.from_json_file("bert/bert_config.json") # include bert directory ONLY in local repository
+#config = BertConfig.from_json_file("bert/bert_config.json") # include bert directory ONLY in local repository
 
-qa_model_class, tokenizer_class, pretrained_weights = (transformers.DistilBertForQuestionAnswering, transformers.DistilBertTokenizer, 'distilbert-base-uncased-distilled-squad') # for QA 'distilbert-base-uncased-distilled-squad' 'distilbert-base-uncased' 'pt-tinybert-msmarco'
+qa_model_class, tokenizer_class, pretrained_weights = (transformers.DistilBertForQuestionAnswering, transformers.DistilBertTokenizer, 'distilbert-base-uncased') # for QA 'distilbert-base-uncased-distilled-squad' 'distilbert-base-uncased' 'pt-tinybert-msmarco'
 #model_class, tokenizer_class, pretrained_weights = (transformers.BertModel, transformers.BertTokenizer, 'bert-base-uncased')
 
 
 # Load pretrained model/tokenizer
 tokenizer = tokenizer_class.from_pretrained(pretrained_weights)
-#model = qa_model_class.from_pretrained(pretrained_weights) 
-model = BertForSpanAspectExtraction(config)
+model = qa_model_class.from_pretrained(pretrained_weights) 
+#model = BertForSpanAspectExtraction(config)
 
 
 # Creates a table separating sentences from associated token tags
@@ -171,64 +152,15 @@ new_index_list = dataframe['text'].str.len().sort_values().index
 dataframe = dataframe.reindex(new_index_list) # sorted dataframe by length of the sentence
 dataframe = dataframe.reset_index(drop=True)
 
-#input_ids, attention_mask, start_positions, end_positions = restart_sampling()
-
-#tokens = input_ids[torch.argmax(start_positions): torch.argmax(end_positions) + 1]
-#answerTokens = tokenizer.convert_ids_to_tokens(tokens, skip_special_tokens=True)
-#answer_test = tokenizer.convert_tokens_to_string(answerTokens)
-#print(answer_test)
-
-# DATA PREPROCESSED IN BERT FORMAT 
-#print(input_ids)
-#print(attention_mask)
-#print(start_positions)
-#print(end_positions)
-
-# REUSED FROM PAPER 
-
-
-#checkpoint = torch.load(save_path)
-#model.load_state_dict(checkpoint['model'])
-#step = checkpoint['step']
-#print("Loading model from finetuned checkpoint: '{}' (step {})"
-#            .format(save_path, step))
-
-f = open(network_path, "w")
-for n, param in model.named_parameters():
-    print("name: {}, size: {}, dtype: {}, requires_grad: {}"
-          .format(n, param.size(), param.dtype, param.requires_grad), file=f)
-total_trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-total_params = sum(p.numel() for p in model.parameters())
-print("Total trainable parameters: {}".format(total_trainable_params), file=f)
-print("Total parameters: {}".format(total_params), file=f)
-f.close()
-eval_examples, eval_features, eval_dataloader = None, None, None
-#train dataloader, num trainsteps none
-
-
-# tokenization as included in the paper code...
-#tokenizer = tokenizer.FullTokenizer(vocab_file="bert/vocab_file.txt", do_lower_case=True)
-#model = BertForSpanAspectExtraction(bert_config)
-# verificação de caminho válido era aqui
-#model = bert_load_state_dict(model, torch.load("bert/pytorch_model.bin", map_location='cpu')) # TO DO: EXTRACT FUNCTION FROM PAPER CODE
-#print("Loading model from pretrained checkpoint: {}".format("bert/pytorch_model.bin"))
 
 epochs_qnt = 1 # TO DO: CHANGE TO 3
 batch_size = 8
 training_steps = epochs_qnt * math.ceil(len(tokenized_dataset)/batch_size)
  # This is the learning rate the paper used # args.adam_epsilon  - default is 1e-8.
-#optimizer = AdamW(model.parameters(),lr = 2e-5,eps = 1e-8  )
-optimizer, param_optimizer = custom_optimizer(model, training_steps)
+optimizer = AdamW(model.parameters(),lr = 2e-5,eps = 1e-8  ) #change learning rate
 
-#device = torch.device('cuda') #device = "cpu"
 device = "cpu"
 model.to(device)
-
-#checkpoint = torch.load(save_path)
-#optimizer.load_state_dict(checkpoint['optimizer'])
-#step = checkpoint['step']
-#print("Loading optimizer from finetuned checkpoint: '{}' (step {})".format(save_path, step))
-global_step = 0 #step
 
 best_f1 = 0
 start_save_steps = int(training_steps * 0.5)
@@ -236,24 +168,24 @@ save_checkpoints_steps = int(training_steps / (5 * epochs_qnt))
 
 model.train() # only sets the training mode
 #num warmup steps is default value in glue.py
-#scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps = 0,num_training_steps = training_steps)
+scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps = 0,num_training_steps = training_steps)
 for epoch in range(0,epochs_qnt):
 
   input_ids, segment_ids, attention_mask, start_positions, end_positions = restart_sampling(batch_size=batch_size)
   #print(type(input_ids), type(segment_ids), type(attention_mask), type(start_positions), type(end_positions))
 
   train_loss = 0.0
-  count = 0
+  #count = 0
 
-  for batch_index,(ids, seg, mask, start, end) in enumerate(zip(input_ids, segment_ids, attention_mask, start_positions, end_positions)):
+  for batch_index,(input_ids, seg, input_mask, input_start, input_end) in enumerate(zip(input_ids, segment_ids, attention_mask, start_positions, end_positions)):
     #print(batch)
 
     #input_ids = ids.to(device) # TO DO: CONFIRM THAT IT IS USEFUL TO MOVE THEM TO CPU, OR DELETE IF ITS NOT DOING ANYTHING
     #input_mask = mask.to(device)
-    #input_start = start_positions[index].to(device)
-    #input_end = end_positions[index].to(device)
+    #input_start = start.to(device)
+    #input_end = end.to(device)
 
-    #model.zero_grad() #clear previous gradients
+    model.zero_grad() #clear previous gradients
 
     #print(input_ids.shape,type(input_ids))
     # TRAINING STEP
@@ -263,9 +195,9 @@ for epoch in range(0,epochs_qnt):
     # TO DO: find out what are segment_ids and create them!
     #print(type(train_loss))
     #model = BertForSpanAspectExtraction(bert_config)
-    #loss, start_logits, end_logits = model(input_ids=input_ids,  attention_mask=input_mask, start_positions=input_start, end_positions=input_end)
     #print(type(ids), type(seg), type(mask), type(start), type(end))
-    loss = model(ids, seg, mask, start, end)
+    #loss = model(ids, seg, mask, start, end)
+    loss, start_logits, end_logits = model(input_ids=input_ids,  attention_mask=input_mask, start_positions=input_start, end_positions=input_end)
     #start_logits, end_logits = model(ids, seg, mask)
     #score_start, score_end = model(input_ids, input_mask)
     #tokens = inputIds[torch.argmax(scores_start): torch.argmax(score_end) + 1]
@@ -292,8 +224,8 @@ for epoch in range(0,epochs_qnt):
 
     optimizer.step() #update parameters 
     model.zero_grad()
-    global_step += 1
-    count += 1
+    #global_step += 1
+    #count += 1
 '''
     if global_step % save_checkpoints_steps == 0 and count != 0:
       print("step: {}, loss: {:.4f}".format(global_step, train_loss / count))
