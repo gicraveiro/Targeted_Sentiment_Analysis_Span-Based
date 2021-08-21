@@ -201,6 +201,8 @@ input_ids, attention_mask, start_positions, end_positions = restart_sampling(bat
 model.eval() #set to evaluation mode
 
 predicted_starts, predicted_ends, real_starts, real_ends = [], [], [], []
+count = 0
+real_count, pred_count = 0,0
 
 for batch_index,(input_ids, input_mask, input_start, input_end) in enumerate(zip(input_ids, attention_mask, start_positions, end_positions)):
 
@@ -210,40 +212,52 @@ for batch_index,(input_ids, input_mask, input_start, input_end) in enumerate(zip
   #logits = outputs[0]
   start_logits = outputs.start_logits
   end_logits = outputs.end_logits
+  print(start_logits)
+  print(end_logits)
+  for logit in start_logits:
+    start_logits = logit.numpy()
+    end_logits = logit.numpy()
+    pred_start = numpy.max(start_logits)
+    pred_end = numpy.max(end_logits)
+    pred_start = numpy.nonzero(start_logits == pred_start)
+    pred_end = numpy.nonzero(end_logits == pred_end)
 
+    predicted_starts.append(pred_start[0][0])
+    predicted_ends.append(pred_end[0][0])
 
-  start_logits = start_logits.numpy()
-  end_logits = end_logits.numpy()
-  pred_start = numpy.max(start_logits)
-  pred_end = numpy.max(end_logits)
-  pred_start = numpy.nonzero(start_logits == pred_start)
-  pred_end = numpy.nonzero(end_logits == pred_end)
-
-
-  predicted_starts.append(pred_start[0][0])
-  predicted_ends.append(pred_end[0][0])
-
+  real_count += len(input_start)
+  #pred_count += len(predicted_starts)
   real_starts.append(input_start)
   real_ends.append(input_end)
 
 print('Congrats! Evaluation concluded successfully!')
 print(predicted_starts)
 print(predicted_ends)
+print(len(predicted_starts))
+print(len(predicted_ends))
 
 total_real_starts = numpy.concatenate(real_starts, axis=0)
 total_real_ends = numpy.concatenate(real_ends, axis=0)
-total_predicted_starts = numpy.concatenate(predicted_starts, axis=0)
-total_predicted_ends = numpy.concatenate(predicted_ends, axis=0)
+total_real_starts = total_real_starts[total_real_starts != -1]
+total_real_ends = total_real_ends[total_real_ends != -1]
+total_real_starts = list(total_real_starts)
+total_real_ends = list(total_real_ends)
 
-predicted_start = numpy.argmax(total_predicted_starts, axis=1).flatten()
-predicted_end = numpy.argmax(total_predicted_ends, axis=1).flatten()
+print(total_real_starts, len(total_real_starts))
+print(total_real_ends, len(total_real_ends))
+print("count", count, real_count, pred_count)
+#total_predicted_starts = numpy.concatenate(predicted_starts, axis=0)
+#total_predicted_ends = numpy.concatenate(predicted_ends, axis=0)
 
-accuracy_starts = (predicted_start == total_real_starts).mean()
-accuracy_ends = (predicted_end == total_real_ends).mean()
+#predicted_start = numpy.argmax(predicted_starts, axis=1).flatten()
+#predicted_end = numpy.argmax(predicted_ends, axis=1).flatten()
 
+#accuracy_starts = (predicted_starts == total_real_starts).mean()
+#accuracy_ends = (predicted_ends == total_real_ends).mean()
+#true_positives = 
 
-print('Accuracy Start:', accuracy_starts)
-print('Accuracy Ends', accuracy_ends)
+#print('Accuracy Start:', accuracy_starts)
+#print('Accuracy Ends', accuracy_ends)
 
 
 '''
