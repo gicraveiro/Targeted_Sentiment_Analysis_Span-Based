@@ -5,9 +5,9 @@ import pandas
 import numpy
 import math
 import random
-from transformers import AutoConfig, AdamW, get_linear_schedule_with_warmup
+from transformers import AutoConfig, AdamW, get_linear_schedule_with_warmup#BertConfig
 from transformers.utils.dummy_pt_objects import LongformerForQuestionAnswering
-#from reused import BertConfig, BertForSpanAspectExtraction
+from reused import BertConfig, BertForSpanAspectExtraction
 #from reused import run_train_epoch, read_eval_data, read_train_data, prepare_optimizer
 
 def restart_sampling(batch_size):
@@ -113,11 +113,13 @@ def restart_sampling(batch_size):
       batch_end_positions.append(sentence_end_positions)
 
     
-    input_ids.append(torch.tensor(padded_batch))
-    attention_mask.append(torch.tensor(batch_attention_mask))
-    start_positions.append(torch.tensor(batch_start_positions))
-    end_positions.append(torch.tensor(batch_end_positions))
-    segment_ids.append(torch.tensor(batch_segment_ids))
+    input_ids.append(torch.tensor(padded_batch, dtype=torch.long))
+    attention_mask.append(torch.tensor(batch_attention_mask, dtype=torch.long))
+    start_positions.append(torch.tensor(batch_start_positions, dtype=torch.long))
+    end_positions.append(torch.tensor(batch_end_positions, dtype=torch.long))
+    segment_ids.append(torch.tensor(batch_segment_ids, dtype=torch.long))
+    #print("start", torch.tensor(batch_start_positions).shape)
+    #print("end", torch.tensor(batch_end_positions).shape)
 
   
   
@@ -126,11 +128,14 @@ def restart_sampling(batch_size):
 
 #config = AutoConfig.from_pretrained(pretrained_model_name_or_path='distilbert-base-uncased')#,num_labels=2)
 
-qa_model_class, tokenizer_class, pretrained_weights = (transformers.DistilBertForQuestionAnswering, transformers.DistilBertTokenizer, 'distilbert-base-uncased') # for QA 'distilbert-base-uncased-distilled-squad'
+qa_model_class, tokenizer_class, pretrained_weights = (transformers.DistilBertForQuestionAnswering, transformers.DistilBertTokenizer, 'distilbert-base-uncased-distilled-squad') # for QA 'distilbert-base-uncased-distilled-squad' 'distilbert-base-uncased' 'pt-tinybert-msmarco'
 
 # Load pretrained model/tokenizer
 tokenizer = tokenizer_class.from_pretrained(pretrained_weights)
 model = qa_model_class.from_pretrained(pretrained_weights) 
+
+#bert_config = BertConfig.from_json_file(args.bert_config_file)
+config = BertConfig(vocab_size=30522)
 
 # Creates a table separating sentences from associated token tags
 dataframe = pandas.read_csv("data/laptop14_train.txt", delimiter='####', header=None, names=['text','labels'],engine='python')
@@ -157,7 +162,7 @@ dataframe = dataframe.reset_index(drop=True)
 
 # REUSED FROM PAPER 
 
-#bert_config = BertConfig.from_json_file("bert/bert_config.json") # include bert directory ONLY in local repository
+bert_config = BertConfig.from_json_file("bert/bert_config.json") # include bert directory ONLY in local repository
 
 # tokenization as included in the paper code...
 #tokenizer = tokenizer.FullTokenizer(vocab_file="bert/vocab_file.txt", do_lower_case=True)
@@ -184,29 +189,48 @@ scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps = 0,num_
 for epoch in range(0,epochs_qnt):
 
   input_ids, segment_ids, attention_mask, start_positions, end_positions = restart_sampling(batch_size=batch_size)
+  #print(type(input_ids), type(segment_ids), type(attention_mask), type(start_positions), type(end_positions))
 
   train_loss = 0
   model.train() # only sets the training mode
 
-  for index,batch in enumerate(input_ids):
+  for batch_index,(ids, seg, mask, start, end) in enumerate(zip(input_ids, segment_ids, attention_mask, start_positions, end_positions)):
     #print(batch)
 
-    input_ids = batch.to(device) # TO DO: CONFIRM THAT IT IS USEFUL TO MOVE THEM TO CPU, OR DELETE IF ITS NOT DOING ANYTHING
-    input_mask = attention_mask[index].to(device)
-    input_start = start_positions[index].to(device)
-    input_end = end_positions[index].to(device)
+    #input_ids = ids.to(device) # TO DO: CONFIRM THAT IT IS USEFUL TO MOVE THEM TO CPU, OR DELETE IF ITS NOT DOING ANYTHING
+    #input_mask = mask.to(device)
+    #input_start = start_positions[index].to(device)
+    #input_end = end_positions[index].to(device)
 
     model.zero_grad() #clear previous gradients
 
+    #print(input_ids.shape,type(input_ids))
     # TRAINING STEP
     #loss is returned because it is supervised learning based on the labels
     # logits are the predicted outputs by the model before activation
 
     # TO DO: find out what are segment_ids and create them!
     
-    loss, logits = model(input_ids, segment_ids, input_mask, input_start, input_end)
-    train_loss += loss.item()
+    model = BertForSpanAspectExtraction(bert_config)
+    #loss, start_logits, end_logits = model(input_ids=input_ids,  attention_mask=input_mask, start_positions=input_start, end_positions=input_end)
+    #print(type(ids), type(seg), type(mask), type(start), type(end))
+    loss = model(ids, seg, mask, start, end)
+    #score_start, score_end = model(input_ids, input_mask)
+    #tokens = inputIds[torch.argmax(scores_start): torch.argmax(score_end) + 1]
+    #answerTokens = distilBertTokenizer.convert_ids_to_tokens(tokens, skip_special_tokens=True)
+    #print(tokenizer.convert_tokens_to_string(answerTokens))
+    # extra layer
+    #all_encoder_layers, _ = self.bert(input_ids, segment_ids, attention_mask)
+    #sequence_output = all_encoder_layers[-1]
+    #self.qa_outputs = nn.Linear(config.hidden_size, 2)
+    #logits = self.qa_outputs(sequence_output)
+    #start_logits, end_logits = logits.split(1, dim=-1)
+    #start_logits = start_logits.squeeze(-1)
+    #end_logits = end_logits.squeeze(-1)
+
+    
     loss.backward() # backward propagate
+    train_loss += loss.item()
 
     # Clip the norm of the gradients to 1.0.
     # This is to help prevent the "exploding gradients" problem.
@@ -217,9 +241,12 @@ for epoch in range(0,epochs_qnt):
     #print(input_ids, input_mask, input_start, input_end)
     #print(batch.to(device))
 
+  #print("SCORE START", score_start)
+  #print("SCORE END", score_end)
   print("Total loss", train_loss)
   print("Average loss", train_loss/math.ceil(len(tokenized_dataset)/batch_size))
-
+  print("Congrats!Training concluded successfully!")
+'''
 #EVALUATION
 
   # PREPARE DATASET ON TEST
@@ -251,7 +278,7 @@ for epoch in range(0,epochs_qnt):
     start_labels.append(start_ids)
     end_labels.append(end_ids)
 
-
+'''
 '''
 print("***** Preparing data *****")
 train_dataloader, num_train_steps = None, None
