@@ -101,14 +101,10 @@ def restart_sampling(batch_size):
       if(sentence_start_positions == []):
         sentence_start_positions = [-1]
         sentence_end_positions = [-1]
-      #sentence_start_positions += (num_zeros*[0]) # initial and final token must be added as extra zeros eve beyond the zeros that represent absence of tokens
-      #sentence_end_positions += (num_zeros*[0])
       sentence = sentence + [0] * num_zeros
       batch_segment_ids = max_len * [0]
       padded_batch.append(sentence)
       batch_attention_mask.append(sentence_attention_mask)
-      #batch_start_positions.append(sentence_start_positions)
-      #batch_end_positions.append(sentence_end_positions)
       batch_start_positions += sentence_start_positions
       batch_end_positions += sentence_end_positions
     
@@ -117,13 +113,6 @@ def restart_sampling(batch_size):
     start_positions.append(torch.tensor(batch_start_positions, dtype=torch.long))
     end_positions.append(torch.tensor(batch_end_positions, dtype=torch.long))
     segment_ids.append(torch.tensor(batch_segment_ids, dtype=torch.long))
-    #print("start", torch.tensor(batch_start_positions).shape)
-    #print("end", torch.tensor(batch_end_positions).shape)
-    #print(start_positions)
-    #print(end_positions)
-
-  
-  
 
   return(input_ids,segment_ids,attention_mask, start_positions, end_positions)
 
@@ -197,7 +186,8 @@ for epoch in range(0,epochs_qnt):
     #model = BertForSpanAspectExtraction(bert_config)
     #print(type(ids), type(seg), type(mask), type(start), type(end))
     #loss = model(ids, seg, mask, start, end)
-    loss, start_logits, end_logits = model(input_ids=input_ids,  attention_mask=input_mask, start_positions=input_start, end_positions=input_end)
+    outputs = model(input_ids=input_ids,  attention_mask=input_mask, start_positions=input_start, end_positions=input_end)
+    #loss, start_logits, end_logits
     #start_logits, end_logits = model(ids, seg, mask)
     #score_start, score_end = model(input_ids, input_mask)
     #tokens = inputIds[torch.argmax(scores_start): torch.argmax(score_end) + 1]
@@ -211,8 +201,12 @@ for epoch in range(0,epochs_qnt):
     #start_logits, end_logits = logits.split(1, dim=-1)
     #start_logits = start_logits.squeeze(-1)
     #end_logits = end_logits.squeeze(-1)
+    loss = outputs.loss
+    start_logits = outputs.start_logits
+    end_logits = outputs.end_logits
+    print(loss, start_logits, end_logits)
+    
 
-    #print(loss)
     loss.backward() # backward propagate
     train_loss += loss.item()
     if numpy.isnan(train_loss) == False:
@@ -220,10 +214,11 @@ for epoch in range(0,epochs_qnt):
 
     # Clip the norm of the gradients to 1.0.
     # This is to help prevent the "exploding gradients" problem.
-    #torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 
     optimizer.step() #update parameters 
-    model.zero_grad()
+    scheduler.step()
+    #model.zero_grad()
     #global_step += 1
     #count += 1
 '''
