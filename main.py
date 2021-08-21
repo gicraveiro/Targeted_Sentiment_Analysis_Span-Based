@@ -6,9 +6,20 @@ import math
 import random
 from transformers import AutoConfig, AdamW, get_linear_schedule_with_warmup#BertConfig
 #from transformers.utils.dummy_pt_objects import LongformerForQuestionAnswering
-#import numpy
+import numpy
 
-def restart_sampling(batch_size):
+def restart_sampling(batch_size, input_file):
+
+  # Creates a table separating sentences from associated token tags
+  dataframe = pandas.read_csv(input_file, delimiter='####', header=None, names=['text','labels'],engine='python')
+
+  tokenized_dataset = dataframe['text'].apply((lambda x: tokenizer.encode(x, add_special_tokens=True)))
+
+  # Sorts table and transforms each word to the code of the token
+
+  new_index_list = dataframe['text'].str.len().sort_values().index
+  dataframe = dataframe.reindex(new_index_list) # sorted dataframe by length of the sentence
+  dataframe = dataframe.reset_index(drop=True)
   # TOKENIZATION
   tokenized_dataset = dataframe['text'].apply((lambda x: tokenizer.encode(x, add_special_tokens=True)))#, max_length=100, truncation=True, padding=False''' )
   labels_list = dataframe['labels'].to_list()
@@ -123,21 +134,19 @@ qa_model_class, tokenizer_class, pretrained_weights = (transformers.DistilBertFo
 tokenizer = tokenizer_class.from_pretrained(pretrained_weights)
 model = qa_model_class.from_pretrained(pretrained_weights) 
 
-# Creates a table separating sentences from associated token tags
-dataframe = pandas.read_csv("data/laptop14_train.txt", delimiter='####', header=None, names=['text','labels'],engine='python')
-tokenized_dataset = dataframe['text'].apply((lambda x: tokenizer.encode(x, add_special_tokens=True)))
 
-# Sorts table and transforms each word to the code of the token
-
-new_index_list = dataframe['text'].str.len().sort_values().index
-dataframe = dataframe.reindex(new_index_list) # sorted dataframe by length of the sentence
-dataframe = dataframe.reset_index(drop=True)
 
 # TRAINING CONFIGURATIONS
 
-epochs_qnt = 3 # TO DO: CHANGE TO 3
+epochs_qnt = 1#3 # TO DO: CHANGE TO 3
 batch_size = 8
-training_steps = epochs_qnt * math.ceil(len(tokenized_dataset)/batch_size)
+with open('data/laptop14_train.txt') as file:
+  train_dataset_len = sum(1 for line in file)
+#with open('data/laptop14_test.txt') as file:
+#  test_dataset_len = sum(1 for line in file)
+#print(train_dataset_len)
+#print( test_dataset_len)
+training_steps = epochs_qnt * math.ceil(train_dataset_len/batch_size)
 
 # Setting optimizer
  # This is the learning rate the paper used # args.adam_epsilon  - default is 1e-8.
@@ -147,14 +156,14 @@ device = "cpu"
 model.to(device)
 
 # TRAINING STEP
-
+'''
 model.train() # only sets the training mode
 #num warmup steps is default value in glue.py
 scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps = 0,num_training_steps = training_steps)
 for epoch in range(0,epochs_qnt):
   
   train_loss = 0.0
-  input_ids,  attention_mask, start_positions, end_positions = restart_sampling(batch_size=batch_size)
+  input_ids,  attention_mask, start_positions, end_positions = restart_sampling(batch_size, "data/laptop14_train.txt")
 
   for batch_index,(input_ids, input_mask, input_start, input_end) in enumerate(zip(input_ids, attention_mask, start_positions, end_positions)):
 
@@ -180,33 +189,62 @@ for epoch in range(0,epochs_qnt):
     scheduler.step()
     #model.zero_grad()
 
-print("Average loss", train_loss/math.ceil(len(tokenized_dataset)/batch_size))
+print("Average loss", train_loss/math.ceil(train_dataset_len/batch_size))
 print("Congrats!Training concluded successfully!")
 '''
 #EVALUATION
 
   # PREPARE DATASET ON TEST
   # need to send the right parameters!
-  input_ids, attention_mask, start_positions, end_positions = restart_sampling(batch_size=batch_size)
+input_ids, attention_mask, start_positions, end_positions = restart_sampling(batch_size, "data/laptop14_test.txt")
 
-  model.eval() #set to evaluation mode
+model.eval() #set to evaluation mode
 
-  predicted_starts, predicted_ends, real_starts, real_ends = [], [], [], []
+predicted_starts, predicted_ends, real_starts, real_ends = [], [], [], []
 
-  for batch_index,(input_ids, input_mask, input_start, input_end) in enumerate(zip(input_ids, attention_mask, start_positions, end_positions)):
+for batch_index,(input_ids, input_mask, input_start, input_end) in enumerate(zip(input_ids, attention_mask, start_positions, end_positions)):
 
-    with torch.no_grad():
-      outputs = model(input_ids, attention_mask=input_mask) 
-      
-    #logits = outputs[0]
-    start_logits = outputs.start_logits
-    end_logits = outputs.end_logits
+  with torch.no_grad():
+    outputs = model(input_ids, attention_mask=input_mask) 
+    
+  #logits = outputs[0]
+  start_logits = outputs.start_logits
+  end_logits = outputs.end_logits
 
-    predicted_starts.append(start_logits)
-    predicted_ends.append(end_logits)
-    real_starts.append(input_starts)
-    real_ends.append(input_ends)
-'''
+  start_logits = start_logits.numpy()
+  end_logits = end_logits.numpy()
+  pred_start = numpy.max(start_logits)#numpy.where(start_logits == numpy.max(start_logits))
+  pred_end = numpy.max(end_logits)#numpy.where(end_logits == numpy.max(end_logits))
+  #start_logits = start_logits.tolist()
+  #end_logits = end_logits.tolist()
+  pred_start = (list(start_logits).index(pred_start)).any()
+  pred_end = (list(end_logits).index(pred_end)).any()
+
+  predicted_starts.append(pred_start[0])
+  predicted_ends.append(pred_end[0])
+
+  real_starts.append(input_start)
+  real_ends.append(input_end)
+
+print('Congrats! Evaluation concluded successfully!')
+print(predicted_starts)
+print(predicted_ends)
+
+total_real_starts = numpy.concatenate(real_starts, axis=0)
+total_real_ends = numpy.concatenate(real_ends, axis=0)
+total_predicted_starts = numpy.concatenate(predicted_starts, axis=0)
+total_predicted_ends = numpy.concatenate(predicted_ends, axis=0)
+
+predicted_start = numpy.argmax(total_predicted_starts, axis=1).flatten()
+predicted_end = numpy.argmax(total_predicted_ends, axis=1).flatten()
+
+accuracy_starts = (predicted_start == total_real_starts).mean()
+accuracy_ends = (predicted_end == total_real_ends).mean()
+
+
+print('Accuracy Start:', accuracy_starts)
+print('Accuracy Ends', accuracy_ends)
+
 
 '''
 Acknowledgments
