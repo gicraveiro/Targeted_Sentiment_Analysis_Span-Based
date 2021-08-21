@@ -138,7 +138,7 @@ model = qa_model_class.from_pretrained(pretrained_weights)
 
 # TRAINING CONFIGURATIONS
 
-epochs_qnt = 1#3 # TO DO: CHANGE TO 3
+epochs_qnt = 3#3 # TO DO: CHANGE TO 3
 batch_size = 8
 with open('data/laptop14_train.txt') as file:
   train_dataset_len = sum(1 for line in file)
@@ -156,7 +156,7 @@ device = "cpu"
 model.to(device)
 
 # TRAINING STEP
-'''
+
 model.train() # only sets the training mode
 #num warmup steps is default value in glue.py
 scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps = 0,num_training_steps = training_steps)
@@ -191,7 +191,7 @@ for epoch in range(0,epochs_qnt):
 
 print("Average loss", train_loss/math.ceil(train_dataset_len/batch_size))
 print("Congrats!Training concluded successfully!")
-'''
+
 #EVALUATION
 
   # PREPARE DATASET ON TEST
@@ -233,19 +233,32 @@ for batch_index,(input_ids, input_mask, input_start, input_end) in enumerate(zip
 print('Congrats! Evaluation concluded successfully!')
 print(predicted_starts)
 print(predicted_ends)
-print(len(predicted_starts))
-print(len(predicted_ends))
+#print(len(predicted_starts))
+#print(len(predicted_ends))
 
 total_real_starts = numpy.concatenate(real_starts, axis=0)
 total_real_ends = numpy.concatenate(real_ends, axis=0)
-total_real_starts = total_real_starts[total_real_starts != -1]
-total_real_ends = total_real_ends[total_real_ends != -1]
+#total_real_starts = total_real_starts[total_real_starts != -1]
+#total_real_ends = total_real_ends[total_real_ends != -1]
+total_real_starts[total_real_starts == -1] = 0
+total_real_ends[total_real_ends == -1] = 0
 total_real_starts = list(total_real_starts)
 total_real_ends = list(total_real_ends)
 
+
 print(total_real_starts, len(total_real_starts))
 print(total_real_ends, len(total_real_ends))
+print(len(predicted_starts))
+print(len(predicted_ends))
 print("count", count, real_count, pred_count)
+true_positives = 0
+for index, (pred_start, real_start, pred_end, real_end) in enumerate(zip(predicted_starts,total_real_starts, predicted_ends, total_real_ends)):
+  if(predicted_starts[index] == total_real_starts[index] and predicted_ends[index] == total_real_ends[index]):
+    true_positives += 1
+print(true_positives)
+print("Accuracy", true_positives/len(predicted_starts))
+# ADD REPORTS OF SIZE AND TIME !! -- EFFICIENCY
+
 #total_predicted_starts = numpy.concatenate(predicted_starts, axis=0)
 #total_predicted_ends = numpy.concatenate(predicted_ends, axis=0)
 
