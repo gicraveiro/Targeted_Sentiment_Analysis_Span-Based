@@ -4,6 +4,7 @@ import transformers # pytorch transformers
 import pandas
 import math
 import random
+import time
 from transformers import AutoConfig, AdamW, get_linear_schedule_with_warmup#BertConfig
 #from transformers.utils.dummy_pt_objects import LongformerForQuestionAnswering
 import numpy
@@ -124,6 +125,8 @@ def restart_sampling(batch_size, input_file):
 
   return(input_ids,attention_mask, start_positions, end_positions)
 
+initial_time = time.time()
+
 config = AutoConfig.from_pretrained(pretrained_model_name_or_path='distilbert-base-uncased')#,num_labels=2)
 #config = BertConfig(vocab_size=30522)
 #config = BertConfig.from_json_file("bert/bert_config.json") # include bert directory ONLY in local repository
@@ -175,7 +178,7 @@ for epoch in range(0,epochs_qnt):
     loss = outputs.loss
     #start_logits = outputs.start_logits
     #end_logits = outputs.end_logits
-    print("Loss", loss)
+    #print("Loss", loss)
     #print(start_logits, end_logits)
     
     loss.backward() # backward propagate
@@ -189,8 +192,10 @@ for epoch in range(0,epochs_qnt):
     scheduler.step()
     #model.zero_grad()
 
+training_time = time.time() - initial_time
+print("Congrats! Training concluded successfully!\n")
 print("Average loss", train_loss/math.ceil(train_dataset_len/batch_size))
-print("Congrats! Training concluded successfully!")
+print("Training time in minutes:", training_time/60)
 
 #EVALUATION
 
@@ -230,7 +235,9 @@ for batch_index,(input_ids, input_mask, input_start, input_end) in enumerate(zip
   real_starts.append(input_start)
   real_ends.append(input_end)
 
-print('Congrats! Evaluation concluded successfully!')
+eval_time = time.time() - training_time - initial_time
+print('Congrats! Evaluation concluded successfully!\n')
+print('Evaluation time in seconds:', eval_time)
 #print(predicted_starts)
 #print(predicted_ends)
 #print(len(predicted_starts))
@@ -255,8 +262,18 @@ true_positives = 0
 for index, (pred_start, real_start, pred_end, real_end) in enumerate(zip(predicted_starts,total_real_starts, predicted_ends, total_real_ends)):
   if(predicted_starts[index] == total_real_starts[index] and predicted_ends[index] == total_real_ends[index]):
     true_positives += 1
+
+total_time = time.time() - initial_time
 print("Total true positives - both span start and end positions:", true_positives)
 print("Accuracy", true_positives/len(predicted_starts))
+print("Total time in minutes:", total_time/60)
+print("Parameters: ")
+print("Number of epochs:", epochs_qnt)
+print("Batch size:", batch_size)
+print("DistilBERT used instead of BERT")
+print("Number of hidden layers: 4")
+print("Hidden size: 312")
+print("Intermediate size: 1200")
 # ADD REPORTS OF SIZE AND TIME !! -- EFFICIENCY
 
 #total_predicted_starts = numpy.concatenate(predicted_starts, axis=0)
