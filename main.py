@@ -190,7 +190,7 @@ for epoch in range(0,epochs_qnt):
     #model.zero_grad()
 
 print("Average loss", train_loss/math.ceil(train_dataset_len/batch_size))
-print("Congrats!Training concluded successfully!")
+print("Congrats! Training concluded successfully!")
 
 #EVALUATION
 
@@ -212,8 +212,8 @@ for batch_index,(input_ids, input_mask, input_start, input_end) in enumerate(zip
   #logits = outputs[0]
   start_logits = outputs.start_logits
   end_logits = outputs.end_logits
-  print(start_logits)
-  print(end_logits)
+  #print(start_logits)
+  #print(end_logits)
   for logit in start_logits:
     start_logits = logit.numpy()
     end_logits = logit.numpy()
@@ -231,8 +231,8 @@ for batch_index,(input_ids, input_mask, input_start, input_end) in enumerate(zip
   real_ends.append(input_end)
 
 print('Congrats! Evaluation concluded successfully!')
-print(predicted_starts)
-print(predicted_ends)
+#print(predicted_starts)
+#print(predicted_ends)
 #print(len(predicted_starts))
 #print(len(predicted_ends))
 
@@ -246,16 +246,16 @@ total_real_starts = list(total_real_starts)
 total_real_ends = list(total_real_ends)
 
 
-print(total_real_starts, len(total_real_starts))
-print(total_real_ends, len(total_real_ends))
-print(len(predicted_starts))
-print(len(predicted_ends))
-print("count", count, real_count, pred_count)
+#print(total_real_starts, len(total_real_starts))
+#print(total_real_ends, len(total_real_ends))
+#print(len(predicted_starts))
+#print(len(predicted_ends))
+#print("count", count, real_count, pred_count)
 true_positives = 0
 for index, (pred_start, real_start, pred_end, real_end) in enumerate(zip(predicted_starts,total_real_starts, predicted_ends, total_real_ends)):
   if(predicted_starts[index] == total_real_starts[index] and predicted_ends[index] == total_real_ends[index]):
     true_positives += 1
-print(true_positives)
+print("Total true positives - both span start and end positions:", true_positives)
 print("Accuracy", true_positives/len(predicted_starts))
 # ADD REPORTS OF SIZE AND TIME !! -- EFFICIENCY
 
