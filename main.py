@@ -55,6 +55,7 @@ def restart_sampling(batch_size, input_file):
   input_ids = []
   start_positions = []
   end_positions = []
+  polarity = []
   #segment_ids = []
 
   for batch,labels in zip(random_batches_list,random_labels_list):
@@ -80,18 +81,27 @@ def restart_sampling(batch_size, input_file):
       finished = 0
       #for index in enumerate(sent_label_list):
       for token_i,tok in enumerate(sentence):
-        #print("oi")
+        
         if label_i < 0 or label_i >= len(sent_label_list):
           tag = 'O'    
         else:
+          print(sent_label_list[label_i])
+          
           tag = sent_label_list[label_i].split("=")
-          tag = tag[1]
-
+          #if(len(tag) != 2):
+          tag = tag[len(tag)-1] # makes sense
+          #else:
+          #  tag = tag[1]
+        print(tag, label_i, len(sent_label_list))
         end_index = token_i
         if( tag != 'O'):
-          sentence_start_positions = [token_i]
-          sentence_end_positions = [token_i]
-        while(tag != 'O' and label_i < len(sent_label_list)):
+          tag = tag.split("-")
+          tag = tag[1]
+          print(tag)
+          if (tag != 'NEU'):
+            sentence_start_positions = [token_i]
+            sentence_end_positions = [token_i]
+        while(tag != 'O' and tag != 'NEU' and label_i < len(sent_label_list)):
           tag = sent_label_list[label_i].split("=")
           tag = tag[1]
 
@@ -139,7 +149,7 @@ with open('data/laptop14_train.txt') as file:
   train_dataset_len = sum(1 for line in file)
 # TRAINING CONFIGURATIONS
 
-epochs_qnt = 3
+epochs_qnt = 1#3
 batch_size = 8
 training_steps = epochs_qnt * math.ceil(train_dataset_len/batch_size)
 
@@ -159,7 +169,7 @@ for epoch in range(0,epochs_qnt):
   
   train_loss = 0.0
   input_ids,  attention_mask, start_positions, end_positions = restart_sampling(batch_size, "data/laptop14_train.txt")
-
+'''
   for batch_index,(input_ids, input_mask, input_start, input_end) in enumerate(zip(input_ids, attention_mask, start_positions, end_positions)):
 
     model.zero_grad() #clear previous gradients
@@ -246,7 +256,7 @@ print("Number of hidden layers: 4")
 print("Hidden size: 312")
 print("Intermediate size: 1200")
 # TO DO: report in a more organized way the EFFICIENCY based on size and time
-
+'''
 '''
 Acknowledgments
 
@@ -259,11 +269,20 @@ Implementation of the architecture proposed by:
   year={2019}
 }
 
-Smart batching reference:
+Smart batching reference and best reference by far:
 
 http://mccormickml.com/2020/07/29/smart-batching-tutorial/#uniform-length-batching
+https://colab.research.google.com/drive/1Er23iD96x_SzmRG8md1kVggbmz0su_Q5#scrollTo=qRWT-D4U_Pvx
 
 First steps reference:
 
 #code extracted from tutorial at http://jalammar.github.io/a-visual-guide-to-using-bert-for-the-first-time/
+
+
+Helper links
+https://mccormickml.com/2020/03/10/question-answering-with-a-fine-tuned-BERT/#2-load-fine-tuned-bert-large
+https://programmerbackpack.com/bert-nlp-using-distilbert-to-build-a-question-answering-system/
+https://keras.io/examples/nlp/text_extraction_with_bert/
+
+
 ''' 
