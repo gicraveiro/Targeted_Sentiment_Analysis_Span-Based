@@ -150,7 +150,7 @@ with open('data/laptop14_train.txt') as file:
   train_dataset_len = sum(1 for line in file)
 # TRAINING CONFIGURATIONS
 
-epochs_qnt = 1#3
+epochs_qnt = 3
 batch_size = 8
 training_steps = epochs_qnt * math.ceil(train_dataset_len/batch_size)
 
