@@ -136,29 +136,18 @@ def restart_sampling(batch_size, input_file):
 
 def target_extraction():
   config = AutoConfig.from_pretrained(pretrained_model_name_or_path='distilbert-base-uncased', n_layers=4, hidden_dim=1200, dim=312, max_position_embeddings=312)
-  #config = BertConfig(vocab_size=30522)
-  #config = BertConfig.from_json_file("bert/bert_config.json") # include bert directory ONLY in local repository
 
-  qa_model_class, tokenizer_class, pretrained_weights = (transformers.DistilBertForQuestionAnswering, transformers.DistilBertTokenizer, 'distilbert-base-uncased') 
+  qa_model = transformers.DistilBertForQuestionAnswering(config) 
 
   # Load pretrained model/tokenizer
-  tokenizer = tokenizer_class.from_pretrained(pretrained_weights)
-  model = qa_model_class.from_pretrained(pretrained_weights) 
-
-  with open('data/laptop14_train.txt') as file:
-    train_dataset_len = sum(1 for line in file)
-  # TRAINING CONFIGURATIONS
-
-  epochs_qnt = 5
-  batch_size = 8
-  training_steps = epochs_qnt * math.ceil(train_dataset_len/batch_size)
+  model = qa_model.from_pretrained(pretrained_weights) 
 
   # Setting optimizer
   # This is the learning rate the paper used # args.adam_epsilon  - default is 1e-8.
   optimizer = AdamW(model.parameters(),lr = 2e-5,eps = 1e-8  ) #change learning rate
 
-  device = "cpu"
-  model.to(device)
+  #device = "cpu"
+  #model.to(device)
 
   # TRAINING STEP
 
@@ -489,9 +478,9 @@ def polarity_classification():
 
 def report_results():
   print("A")
-## START OF THE CODE
 
-## GENERAL INITIAL CONFIGURATION
+
+# START OF THE CODE
 
 # Initial messages
 
@@ -525,25 +514,45 @@ print("For polarity classification, the model used was Sequence Classification")
 print("To perform target extraction, enter 0")
 print("To perform polarity classification, enter 1")
 print("To exit, enter 2")
+
+print("\nJust so you are prepared") 
+print("Target extraction takes about 15 minutes to finish")
+print("And polarity classification takes about 7 minutes to finish\n")
+
 opt = -1
 while (opt != 0 and opt != 1 and opt != 2):
-  opt = input()
+  opt = int(input())
 
 if(opt == 2):
   quit()
 
+print("\nAllright, let's get started! The cronometer starts ticking now\n")
 # CRONOMETER START
 initial_time = time.time() 
 
 #  COMMON CONFIGURATIONS
 
+with open('data/laptop14_train.txt') as file:
+  train_dataset_len = sum(1 for line in file)
+
+# TRAINING CONFIGURATIONS
+
+epochs_qnt = 5
+batch_size = 8
+training_steps = epochs_qnt * math.ceil(train_dataset_len/batch_size)
+
+# Load tokenizer
+tokenizer_class, pretrained_weights = (transformers.DistilBertTokenizer, 'distilbert-base-uncased')
+tokenizer = tokenizer_class.from_pretrained(pretrained_weights)
 
 if(opt == 1):
   target_extraction()
 elif(opt == 2):
   polarity_classification()
 
-
+total_time = time.time() - initial_time
+print("\nWe're done! Total time was", total_time, "seconds")
+print("Thank you for the patience, come back anytime!")
 
 
 '''
