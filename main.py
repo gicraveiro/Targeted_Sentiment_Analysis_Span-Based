@@ -4,7 +4,7 @@ import pandas
 import math
 import random
 import time
-from transformers import AutoConfig, AdamW, get_linear_schedule_with_warmup
+from transformers import AutoConfig, AdamW, DistilBertConfig, get_linear_schedule_with_warmup
 import numpy
 
 def restart_sampling(batch_size, input_file):
@@ -91,16 +91,17 @@ def restart_sampling(batch_size, input_file):
         if( tag != 'O'):
           tag = tag.split("-")
           tag = tag[1]
-          if (tag != 'NEU'):
-            sentence_start_positions = [token_i]
-            sentence_end_positions = [token_i]
-            if(tag == 'POS'):
-              sentence_polarities = [0]
-            elif(tag == 'NEG'):
-              sentence_polarities = [1]
-            #elif(tag ==  'NEU'):
-            #  sentence_polarities = [2]
-        while(tag != 'O' and tag != 'NEU' and label_i < len(sent_label_list)):
+          #if (tag != 'NEU'):
+          sentence_start_positions = [token_i]
+          sentence_end_positions = [token_i]
+          if(tag == 'POS'):
+            sentence_polarities = [0]
+          elif(tag == 'NEG'):
+            sentence_polarities = [1]
+          elif(tag ==  'NEU'):
+            sentence_polarities = [2]
+          
+        while(tag != 'O' and label_i < len(sent_label_list)): # and tag != 'NEU'
           tag = sent_label_list[label_i].split("=")
           tag = tag[1]
 
@@ -117,7 +118,7 @@ def restart_sampling(batch_size, input_file):
       if(sentence_start_positions == []):
         sentence_start_positions = [-1]
         sentence_end_positions = [-1]
-        sentence_polarities = [2] # 3 EQUALS TO NO TARGETED SPAN IN THIS SEQUENCE, 2 if neutrals have been filtered
+        sentence_polarities = [3] # 3 EQUALS TO NO TARGETED SPAN IN THIS SEQUENCE, 2 if neutrals have been filtered
       sentence = sentence + [0] * num_zeros
       padded_batch.append(sentence)
       batch_attention_mask.append(sentence_attention_mask)
@@ -165,6 +166,7 @@ model.to(device)
 model.train() # only sets the training mode
 #num warmup steps is default value in glue.py
 scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps = 0,num_training_steps = training_steps)
+'''
 for epoch in range(0,epochs_qnt):
   
   train_loss = 0.0
@@ -255,6 +257,7 @@ print("DistilBERT used instead of BERT")
 print("Number of hidden layers: 4")
 print("Hidden size: 312")
 print("Intermediate size: 1200")
+'''
 # TO DO: report in a more organized way the EFFICIENCY based on size and time
 #
 #
@@ -273,12 +276,15 @@ print("Intermediate size: 1200")
 #
 #
 # labels = Positive, Negative, -removed Neutral for now- , No target in the span
-'''
-config = AutoConfig.from_pretrained(pretrained_model_name_or_path='distilbert-base-uncased', n_layers=4, hidden_dim=1200, dim=312, max_position_embeddings=312, num_labels=3) #num_labels=4
-class_model = (transformers.DistilBertForSequenceClassification) 
 
+config = DistilBertConfig(pretrained_model_name_or_path='distilbert-base-uncased', n_layers=4, hidden_dim=1200, dim=312, max_position_embeddings=312, num_labels=4) #num_labels=4
+model = transformers.DistilBertForSequenceClassification(config)
+#print(config)
+#print(model.config)
 # Load pretrained model/tokenizer
-model = class_model.from_pretrained(pretrained_weights) 
+#model = class_model.from_pretrained(pretrained_weights) 
+#print(model.config)
+
 
 # Setting optimizer
  # This is the learning rate the paper used # args.adam_epsilon  - default is 1e-8.
@@ -297,13 +303,13 @@ for epoch in range(0,epochs_qnt):
   train_loss = 0.0
   input_ids,  attention_mask, start_positions, end_positions, polarities = restart_sampling(batch_size, "data/laptop14_train.txt")
 
-  for batch_index,(input_ids, input_mask, input_start, input_end) in enumerate(zip(input_ids, attention_mask, start_positions, end_positions)):
+  for batch_index,(input_ids, input_mask, batch_polarities) in enumerate(zip(input_ids, attention_mask, polarities)):
 
     model.zero_grad() #clear previous gradients
-
+    #print(batch_polarities)
     #loss is returned because it is supervised learning based on the labels
     # logits are the predicted outputs by the model before activation
-    outputs = model(input_ids=input_ids,  attention_mask=input_mask, start_positions=input_start, end_positions=input_end)
+    outputs = model(input_ids=input_ids,  attention_mask=input_mask, labels=batch_polarities)
     loss = outputs.loss
     
     loss.backward() # backward propagate
@@ -317,10 +323,10 @@ for epoch in range(0,epochs_qnt):
     scheduler.step()
     #model.zero_grad()
 
-training_time = time.time() - initial_time
-print("Congrats! Training concluded successfully!\n")
+class_training_time = time.time() - initial_time #-total_time
+print("\n\n\nCongrats! Classification Training concluded successfully!\n")
 print("Average loss", train_loss/math.ceil(train_dataset_len/batch_size))
-print("Training time in minutes:", training_time/60)
+print("Classification training time in minutes:", class_training_time/60)
 
 #EVALUATION
 
@@ -329,52 +335,125 @@ input_ids, attention_mask, start_positions, end_positions, polarities = restart_
 
 model.eval() # set to evaluation mode
 
-predicted_starts, predicted_ends, real_starts, real_ends = [], [], [], []
-count = 0
-real_count, pred_count = 0,0
+predicted_polarities, real_polarities = [], []
 
-for batch_index,(input_ids, input_mask, input_start, input_end) in enumerate(zip(input_ids, attention_mask, start_positions, end_positions)):
+for batch_index,(input_ids, input_mask, input_start, input_end, polarities_batch) in enumerate(zip(input_ids, attention_mask, start_positions, end_positions, polarities)):
 
   with torch.no_grad():
-    outputs = model(input_ids, attention_mask=input_mask) 
+    outputs = model(input_ids, attention_mask=input_mask, labels=polarities_batch) 
 
-  start_logits = outputs.start_logits
-  end_logits = outputs.end_logits
+  polarity_logits = outputs.logits
+  #print(polarity_logits)
 
-  for logit in start_logits:
-    start_logits = logit.numpy()
-    end_logits = logit.numpy()
-    pred_start = numpy.max(start_logits)
-    pred_end = numpy.max(end_logits)
-    pred_start = numpy.nonzero(start_logits == pred_start)
-    pred_end = numpy.nonzero(end_logits == pred_end)
+  for logit in polarity_logits:
+    polarity_logits = logit.numpy()
+    pred_pol = numpy.max(polarity_logits)
+    pred_pol = numpy.nonzero(polarity_logits == pred_pol)
+    predicted_polarities.append(pred_pol[0][0])
 
-    predicted_starts.append(pred_start[0][0])
-    predicted_ends.append(pred_end[0][0])
+  real_polarities.append(polarities_batch)
 
-  real_starts.append(input_start)
-  real_ends.append(input_end)
-
-eval_time = time.time() - training_time - initial_time
+eval_time = time.time() - class_training_time #- total_time
 print('Congrats! Evaluation concluded successfully!\n')
-print('Evaluation time in seconds:', eval_time)
+print('Classification evaluation time in seconds:', eval_time)
 
-total_real_starts = numpy.concatenate(real_starts, axis=0)
-total_real_ends = numpy.concatenate(real_ends, axis=0)
-total_real_starts[total_real_starts == -1] = 0
-total_real_ends[total_real_ends == -1] = 0
-total_real_starts = list(total_real_starts)
-total_real_ends = list(total_real_ends)
+total_real_polarities = numpy.concatenate(real_polarities, axis=0)
+#total_real_polarities[total_real_polarities == 2] = 0
+total_real_polarities = list(total_real_polarities)
 
-true_positives = 0
-for index, (pred_start, real_start, pred_end, real_end) in enumerate(zip(predicted_starts,total_real_starts, predicted_ends, total_real_ends)):
-  if(predicted_starts[index] == total_real_starts[index] and predicted_ends[index] == total_real_ends[index]):
-    true_positives += 1
+true_positives_total = 0
+true_positives_POS = 0
+true_positives_NEG = 0
+true_positives_NEU = 0
+true_positives_ABSENT = 0
 
-total_time = time.time() - initial_time
-print("Total true positives - both span start and end positions:", true_positives)
-print("Accuracy", true_positives/len(predicted_starts))
-print("Total target extraction time in minutes:", total_time/60)
+false_positives_total = 0
+false_positives_POS = 0
+false_positives_NEG = 0
+false_positives_NEU = 0
+false_positives_ABSENT = 0
+
+false_negatives_total = 0
+false_negatives_POS = 0
+false_negatives_NEG = 0
+false_negatives_NEU = 0
+false_negatives_ABSENT = 0
+
+for index, (pred_pol, real_pol) in enumerate(zip(predicted_polarities,total_real_polarities)):
+  pred_aux = predicted_polarities[index]
+  real_aux = total_real_polarities[index]
+  if(pred_aux == real_aux):
+    print("correct prediction", pred_aux, real_aux)
+    true_positives_total += 1
+    if(pred_aux == 0):
+      true_positives_POS += 1
+    elif(pred_aux == 1):
+      true_positives_NEG += 1
+    elif(pred_aux == 2):
+      true_positives_NEU += 1
+    elif(pred_aux == 3):
+      true_positives_ABSENT += 1
+  else:
+    print("WRONG", pred_aux, real_aux)
+    if(pred_aux == 0):
+      false_positives_POS += 1
+    elif(pred_aux == 1):
+      false_positives_NEG += 1
+    elif(pred_aux == 2): 
+      false_positives_NEU += 1
+    elif(pred_aux == 3):
+      false_positives_ABSENT += 1
+      false_negatives_total += 1
+    if(real_aux == 0):
+      false_negatives_POS += 1
+    elif(real_aux == 1):
+      false_negatives_NEG += 1
+    elif(real_aux == 2):
+      false_negatives_NEU += 1
+    elif(real_aux == 3):
+      false_negatives_ABSENT += 1
+      false_positives_total += 1
+
+def precision(true_positives, false_positives):
+  if (true_positives+ false_positives <= 0):
+    return 0
+  precision = true_positives / (true_positives + false_positives)
+  return precision
+def recall(true_positives, false_negatives):
+  if (true_positives+ false_negatives <= 0):
+    return 0
+  recall = true_positives / (true_positives + false_negatives)
+  return recall
+def f1(precision, recall):
+  if (precision + recall <= 0):
+    return 0
+  f1 = (2*precision*recall)/(precision+recall)
+  return f1
+
+precision_total = precision(true_positives_total,false_positives_total)
+recall_total = recall(true_positives_total,false_negatives_total)
+f1_total = f1(precision_total,recall_total)
+
+precision_POS = precision(true_positives_POS, false_positives_POS)
+recall_POS = recall(true_positives_POS, false_positives_POS)
+f1_POS = f1(precision_POS, recall_POS)
+
+precision_NEG = precision(true_positives_NEG, false_positives_NEG)
+recall_NEG = recall(true_positives_NEG, false_positives_NEG)
+f1_NEG = f1(precision_NEG, recall_NEG)
+
+precision_NEU = precision(true_positives_NEU, false_positives_NEU)
+recall_NEU = recall(true_positives_NEU, false_positives_NEU)
+f1_NEU = f1(precision_NEU, recall_NEU)
+
+precision_ABSENT = precision(true_positives_ABSENT, false_positives_ABSENT)
+recall_ABSENT = recall(true_positives_ABSENT, false_positives_ABSENT)
+f1_ABSENT = f1(precision_ABSENT, recall_ABSENT)
+
+total_time = time.time() - initial_time #total_time + training_time + eval_time
+print("Total true positives - both span start and end positions:", true_positives_total)
+print("Accuracy", true_positives_total/len(predicted_polarities))
+print("Total time in minutes:", total_time/60)
 print("Parameters: ")
 print("Number of epochs:", epochs_qnt)
 print("Batch size:", batch_size)
@@ -382,11 +461,32 @@ print("DistilBERT used instead of BERT")
 print("Number of hidden layers: 4")
 print("Hidden size: 312")
 print("Intermediate size: 1200")
+
+print("\nPrecisions:")
+print("Positive", precision_POS)
+print("Negative", precision_NEG)
+print("Neutral", precision_NEU)
+print("Absent", precision_ABSENT)
+print("Total", precision_total)
+
+print("\nRecalls:")
+print("Positive", recall_POS)
+print("Negative", recall_NEG)
+print("Neutral", recall_NEU)
+print("Absent", recall_ABSENT)
+print("Total", recall_total)
+
+print("F1 Scores")
+print("Positive", f1_POS)
+print("Negative", f1_NEG)
+print("Neutral", f1_NEU)
+print("Absent", f1_ABSENT)
+print("Total", f1_total)
 # TO DO: report in a more organized way the EFFICIENCY based on size and time
 
 
 
-'''
+
 
 '''
 Acknowledgments
