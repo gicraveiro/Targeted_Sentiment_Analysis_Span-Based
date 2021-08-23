@@ -238,7 +238,7 @@ def target_extraction_training(model, optimizer, epochs_qnt, training_steps, bat
     total_train_loss += train_loss/(len(input_ids))
     print("\nAverage loss after running epoch", epochs_qnt,"is",total_train_loss,"\n")
  
-  return total_train_loss
+  return total_train_loss/epochs_qnt
 
 def target_extraction_evaluation(model, testing_tokenized_dataframe):
   # PREPARE DATASET ON TEST
@@ -570,10 +570,10 @@ print("\nREORGANIZING DATASET TO PERFORM SMART BATCHING\n")
 training_tokenized_dataframe = read_dataset('data/laptop14_train.txt', tokenizer)
 testing_tokenized_dataframe  = read_dataset('data/laptop14_test.txt', tokenizer)
 
-if(opt == 1):
+if(opt == 0):
   print("\nTARGET EXTRACTION STARTING\n")
   target_extraction(training_tokenized_dataframe, testing_tokenized_dataframe, epochs_qnt, training_steps, batch_size, initial_time, train_dataset_len)
-#elif(opt == 2):
+elif(opt == 1):
   print("\nPOLARITY CLASSIFICATION STARTING\n")
   polarity_classification(training_tokenized_dataframe, testing_tokenized_dataframe, epochs_qnt, training_steps, batch_size)
 
