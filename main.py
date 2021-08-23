@@ -19,10 +19,10 @@ def initial_messages():
 
   print("\n'Minghao Hu, Yuxing Peng, Zhen Huang, Dongsheng Li, and Yiwei Lv. 2019b. Open-domain targeted sentiment analysis via span-based extraction and classification. In ACL, pages 537–546.\n")
 
-  print("They implemented a few approaches on target extraction and polarity classification, affirming that best results were given by a pipeline of span multi-target extraction and classification")
+  print("The authors of this paper implemented a few approaches on target extraction and polarity classification, affirming that best results were given by a pipeline of span multi-target extraction and classification")
   print("Unfortunately, multi-target extraction got too complicated")
   print("Instead, I considered only the first target of each annotated sentence")
-  print("Also, I implemented the target extraction and classification separately")
+  print("Also, I implemented the target extraction and classification separately (so not a pipeline)")
 
   print("\nFurthermore, when I say I implemented, I meant that I:")
   print(" Searched tutorials to learn how to manipulate pre-trained bert (and variations) models and speed up training")
@@ -32,8 +32,13 @@ def initial_messages():
   print("   4-> Fed the input to bert evaluation with the laptop14_test.txt dataset")
   print("   5-> Reported results\n")
 
-  print("For target extraction, the model used was Question Answering")
-  print("For polarity classification, the model used was Sequence Classification")
+  print("For target extraction, the model used was Distilbert Question Answering")
+  print("For polarity classification, the model used was Distilbert Sequence Classification")
+
+  print("\nModel choices and configurations were motivated by ethical guidelines that encourage research line using relatively small datasets, other than limited time and power resources.")
+  print("All the chosen configurations were also replicated from tutorials, previous research and/or model designer recommendations")
+  print("The mix of used configurations, each one extracted possibly from a different source, however, is not guaranteed to provide state-of-the-art results.")
+  print("The project elaboration goal was above all to provide me a bit more understanding and practical experience of NLU current concepts, tools, datasets, configurations, etc, to which it has been succesful =D\n")
 
   print("To perform target extraction, enter 0")
   print("To perform polarity classification, enter 1")
@@ -67,7 +72,7 @@ def read_dataset(input_file, tokenizer):
 def restart_sampling(batch_size, tokenized_dataframe):
 
   # copying dataframe to manipulate it
-  dynamic_dataframe = tokenized_dataframe 
+  dynamic_dataframe = tokenized_dataframe.copy(deep=True)
   random_batches_list = []
   random_labels_list = []
 
@@ -195,23 +200,25 @@ def target_extraction_training(model, optimizer, epochs_qnt, training_steps, bat
  
   # HERE IS WHERE THE TRAINING REALLY STARTS
   # All this steps were replicated from the smart batching tutorial
-  
+  total_train_loss = 0.0
   for epoch in range(0,epochs_qnt):
     print("\nEPOCH", epoch, "\n")
     train_loss = 0.0
     # FORMATTING DATA WITH SMART BATCHING
     # At every epoch the data is sorted randomly
     print("\nRANDOMIZING BATCHES\n")
+    #print(training_tokenized_dataframe)
     input_ids,  attention_mask, start_positions, end_positions, polarities = restart_sampling(batch_size, training_tokenized_dataframe)
+    #print(input_ids)
     print("\nBATCHES HAVE BEEN RANDOMIZED\n")
 
-    for batch_index,(input_ids, input_mask, input_start, input_end) in enumerate(zip(input_ids, attention_mask, start_positions, end_positions)):
+    for batch_index,(input_ids_batch, input_mask_batch, input_start_batch, input_end_batch) in enumerate(zip(input_ids, attention_mask, start_positions, end_positions)):
 
       model.zero_grad() #clear previous gradients
 
       #loss is returned because it is supervised learning based on the labels
       # logits are the predicted outputs by the model before activation  
-      outputs = model(input_ids=input_ids,  attention_mask=input_mask, start_positions=input_start, end_positions=input_end)
+      outputs = model(input_ids=input_ids_batch,  attention_mask=input_mask_batch, start_positions=input_start_batch, end_positions=input_end_batch)
       loss = outputs.loss
       loss.backward() # backward propagate
       train_loss += loss.item()
@@ -227,8 +234,11 @@ def target_extraction_training(model, optimizer, epochs_qnt, training_steps, bat
       optimizer.step() #update parameters 
       scheduler.step()
       #model.zero_grad()
-  
-  return train_loss
+    
+    total_train_loss += train_loss/(len(input_ids))
+    print("\nAverage loss after running epoch", epochs_qnt,"is",total_train_loss,"\n")
+ 
+  return total_train_loss
 
 def target_extraction_evaluation(model, testing_tokenized_dataframe):
   # PREPARE DATASET ON TEST
@@ -276,15 +286,15 @@ def target_extraction_results(real_starts, real_ends, predicted_starts, predicte
       true_positives += 1
 
   total_time = time.time() - initial_time
-  print("True positives include only cases in which start and end were predicted correctly, only the first target of the span and cases where the model predicted correctly that there were no targets in the span")
+  print("\nTrue positives include only cases in which start and end were predicted correctly, only the first target of the span and cases where the model predicted correctly that there were no targets in the span\n")
   print("Total true positives:", true_positives)
   print("Accuracy", true_positives/len(predicted_starts))
-  print("Total target extraction time in minutes:", total_time/60)
+  print("Total target extraction time in minutes:", round((total_time/60),2))
  # TO DO: calculate efficiency measure
  # print size measure
  # print time measure
  
-def target_extraction(training_tokenized_dataframe, testing_tokenized_dataframe):
+def target_extraction(training_tokenized_dataframe, testing_tokenized_dataframe, epochs_qnt, training_steps, batch_size, initial_time, train_dataset_len):
   # Load configurations and pretrained model
   config = AutoConfig.from_pretrained(pretrained_model_name_or_path='distilbert-base-uncased', n_layers=4, hidden_dim=1200, dim=312, max_position_embeddings=312)
   print("Configurations:\n", config)
@@ -296,30 +306,32 @@ def target_extraction(training_tokenized_dataframe, testing_tokenized_dataframe)
   optimizer = AdamW(model.parameters(),lr = 2e-5,eps = 1e-8  ) # TO DO: change learning rate?
 
   # TRAINING
-  train_loss = target_extraction_training(model, optimizer, epochs_qnt, training_steps, batch_size, training_tokenized_dataframe)
+  avg_train_loss = target_extraction_training(model, optimizer, epochs_qnt, training_steps, batch_size, training_tokenized_dataframe)
   
   training_time = time.time() - initial_time
   print("Congrats! Training concluded successfully!\n")
-  print("Average loss", train_loss/math.ceil(train_dataset_len/batch_size))
-  print("Training time in minutes:", training_time/60)
+  print("Total Average loss", avg_train_loss)# train_loss/math.ceil(train_dataset_len/batch_size))
+  print("Training time in minutes:", round((training_time/60),2),"\n")
   
   #EVALUATION
   real_starts, real_ends, predicted_starts, predicted_ends = target_extraction_evaluation(model, testing_tokenized_dataframe)
 
   eval_time = time.time() - training_time - initial_time
   print('Congrats! Evaluation concluded successfully!\n')
-  print('Evaluation time in seconds:', eval_time)
+  print('Evaluation time in seconds:', round(eval_time,2))
 
   target_extraction_results(real_starts, real_ends, predicted_starts, predicted_ends)
-  
+
 def polarity_classification_training(model, optimizer, epochs_qnt, training_steps, batch_size, training_tokenized_dataframe):
   model.train() # only sets the training mode
   #num warmup steps is default value in glue.py
   scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps = 0,num_training_steps = training_steps)
   for epoch in range(0,epochs_qnt):
-    
+    print("\nEPOCH", epoch, "\n")
     train_loss = 0.0
+    print("\nRANDOMIZING BATCHES\n")
     input_ids,  attention_mask, start_positions, end_positions, polarities = restart_sampling(batch_size, training_tokenized_dataframe)
+    print("\nBATCHES HAVE BEEN RANDOMIZED\n")
 
     for batch_index,(input_ids, input_mask, batch_polarities) in enumerate(zip(input_ids, attention_mask, polarities)):
 
@@ -332,6 +344,10 @@ def polarity_classification_training(model, optimizer, epochs_qnt, training_step
       
       loss.backward() # backward propagate
       train_loss += loss.item()
+
+      if( batch_index %80  == 0):
+        print("TRAINING UPDATE")
+        print("CURRENT AVERAGE LOSS:", train_loss/(batch_index+1))
 
       # Clip the norm of the gradients to 1.0.
       # This is to help prevent the "exploding gradients" problem.
@@ -395,7 +411,7 @@ def polarity_classification_results(real_polarities, predicted_polarities):
     pred_aux = predicted_polarities[index]
     real_aux = total_real_polarities[index]
     if(pred_aux == real_aux):
-      print("correct prediction", pred_aux, real_aux)
+      #print("correct prediction", pred_aux, real_aux)
       true_positives_total += 1
       if(pred_aux == 0):
         true_positives_POS += 1
@@ -405,8 +421,10 @@ def polarity_classification_results(real_polarities, predicted_polarities):
         true_positives_NEU += 1
       elif(pred_aux == 3):
         true_positives_ABSENT += 1
+        true_positives_total -= 1
+
     else:
-      print("WRONG", pred_aux, real_aux)
+      #print("WRONG", pred_aux, real_aux)
       if(pred_aux == 0):
         false_positives_POS += 1
       elif(pred_aux == 1):
@@ -451,7 +469,7 @@ def polarity_classification_results(real_polarities, predicted_polarities):
   total_time = time.time() - initial_time #total_time + training_time + eval_time
   print("Total true positives - both span start and end positions:", true_positives_total)
   print("Accuracy", true_positives_total/len(predicted_polarities))
-  print("Total time in minutes:", total_time/60)
+  print("Total time in minutes:", round((total_time/60),2))
   print("Parameters: ")
   print("Number of epochs:", epochs_qnt)
   print("Batch size:", batch_size)
@@ -474,7 +492,7 @@ def polarity_classification_results(real_polarities, predicted_polarities):
   print("Absent", recall_ABSENT)
   print("Total", recall_total)
 
-  print("F1 Scores")
+  print("\nF1 Scores")
   print("Positive", f1_POS)
   print("Negative", f1_NEG)
   print("Neutral", f1_NEU)
@@ -482,7 +500,7 @@ def polarity_classification_results(real_polarities, predicted_polarities):
   print("Total", f1_total)
   # TO DO: report in a more organized way the EFFICIENCY based on size and time
 
-def polarity_classification(training_tokenized_dataframe, tokenized_testing_dataset):
+def polarity_classification(training_tokenized_dataframe, tokenized_testing_dataset, epochs_qnt, training_steps, batch_size):
   # labels = Positive, Negative, -removed Neutral for now- , No target in the span
   config = DistilBertConfig(pretrained_model_name_or_path='distilbert-base-uncased', n_layers=4, hidden_dim=1200, dim=312, max_position_embeddings=312, num_labels=4) 
   model = transformers.DistilBertForSequenceClassification(config)
@@ -492,21 +510,21 @@ def polarity_classification(training_tokenized_dataframe, tokenized_testing_data
   # This is the learning rate the paper used # args.adam_epsilon  - default is 1e-8.
   optimizer = AdamW(model.parameters(),lr = 2e-5,eps = 1e-8  ) #change learning rate
 
-  scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps = 0,num_training_steps = training_steps)
+  #scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps = 0,num_training_steps = training_steps)
   
   # TRAINING STEP
-  train_loss = polarity_classification_training(model, optimizer, scheduler, epochs_qnt, training_steps, batch_size, training_tokenized_dataframe)
+  train_loss = polarity_classification_training(model, optimizer, epochs_qnt, training_steps, batch_size, training_tokenized_dataframe)
 
   class_training_time = time.time() - initial_time #-total_time
   print("\n\n\nCongrats! Classification Training concluded successfully!\n")
   print("Average loss", train_loss/math.ceil(train_dataset_len/batch_size))
-  print("Classification training time in minutes:", class_training_time/60)
+  print("Classification training time in minutes:", round((class_training_time/60),2))
 
   real_polarities, predicted_polarities = polarity_classification_evaluation(model, batch_size, tokenized_testing_dataset)
 
   eval_time = time.time() - class_training_time #- total_time
   print('Congrats! Evaluation concluded successfully!\n')
-  print('Classification evaluation time in seconds:', eval_time)
+  print('Classification evaluation time in seconds:', round(eval_time,2))
 
   polarity_classification_results(real_polarities, predicted_polarities)
   
@@ -523,18 +541,25 @@ while (opt != 0 and opt != 1 and opt != 2):
 if(opt == 2):
   quit()
 
-print("\nAllright, let's get started! The cronometer starts ticking now\n")
 # CRONOMETER START
-initial_time = time.time() 
+initial_time, format_time = time.time(), time.asctime( time.localtime(time.time()) )
+print("\nAllright, let's get started! The cronometer starts ticking now")
+print(format_time, "\n")
 
 #  COMMON CONFIGURATIONS
 
 with open('data/laptop14_train.txt') as file:
   train_dataset_len = sum(1 for line in file)
+#with open('data/laptop14_train.txt') as file:
+#  test_dataset_len = sum(1 for line in file)
 
-epochs_qnt = 1
+epochs_qnt = 3
 batch_size = 8
 training_steps = epochs_qnt * math.ceil(train_dataset_len/batch_size)
+print("ADDITIONAL CONFIGURATIONS\n")
+print("\nNUMBER OF EPOCHS:", epochs_qnt)
+print("BATCH SIZE:", batch_size)
+print("TRAINING STEPS:", training_steps)
 
 # Load tokenizer
 tokenizer_class, pretrained_weights = (transformers.DistilBertTokenizer, 'distilbert-base-uncased')
@@ -547,14 +572,14 @@ testing_tokenized_dataframe  = read_dataset('data/laptop14_test.txt', tokenizer)
 
 if(opt == 1):
   print("\nTARGET EXTRACTION STARTING\n")
-  target_extraction(training_tokenized_dataframe, testing_tokenized_dataframe)
+  target_extraction(training_tokenized_dataframe, testing_tokenized_dataframe, epochs_qnt, training_steps, batch_size, initial_time, train_dataset_len)
 #elif(opt == 2):
   print("\nPOLARITY CLASSIFICATION STARTING\n")
-  polarity_classification(training_tokenized_dataframe, testing_tokenized_dataframe)
+  polarity_classification(training_tokenized_dataframe, testing_tokenized_dataframe, epochs_qnt, training_steps, batch_size)
 
 total_time = time.time() - initial_time
-print("\nWe're done! Total time was", total_time/60, "minutes or", total_time, "seconds")
-print("Thank you for the patience, come back anytime!")
+print("\nWe're done! Total time was", round(total_time/60,2), "minutes") # or", total_time, "seconds")
+print("\nThank you for the patience, come back anytime!\n")
 
 
 '''
