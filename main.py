@@ -45,8 +45,8 @@ def initial_messages():
   print("To exit, enter 2")
 
   print("\nJust so you are prepared") 
-  print("Target extraction takes about 15 minutes to finish")
-  print("And polarity classification takes about 7 minutes to finish\n")
+  print("Target extraction takes about 17 minutes to finish")
+  print("And polarity classification takes about 19 minutes to finish\n")
 
 def read_dataset(input_file, tokenizer):
   # Creates a table separating sentences from associated token tags
@@ -128,6 +128,7 @@ def restart_sampling(batch_size, tokenized_dataframe):
           tag = tag[len(tag)-1] 
 
         end_index = token_i
+        
         if( tag != 'O'):
           tag = tag.split("-")
           tag = tag[1]
@@ -140,6 +141,8 @@ def restart_sampling(batch_size, tokenized_dataframe):
             sentence_polarities = [1]
           elif(tag ==  'NEU'):
             sentence_polarities = [2]
+        else:
+          sentence_polarities = [3]
           
         while(tag != 'O' and label_i < len(sent_label_list)): # and tag != 'NEU'
           tag = sent_label_list[label_i].split("=")
@@ -238,7 +241,7 @@ def target_extraction_training(model, optimizer, epochs_qnt, training_steps, bat
     total_train_loss += train_loss/(len(input_ids))
     print("\nAverage loss after running epoch", epochs_qnt,"is",total_train_loss,"\n")
  
-  return total_train_loss
+  return total_train_loss/epochs_qnt
 
 def target_extraction_evaluation(model, testing_tokenized_dataframe):
   # PREPARE DATASET ON TEST
@@ -275,12 +278,14 @@ def target_extraction_results(real_starts, real_ends, predicted_starts, predicte
   
   total_real_starts = numpy.concatenate(real_starts, axis=0)
   total_real_ends = numpy.concatenate(real_ends, axis=0)
-  total_real_starts[total_real_starts == -1] = 0
-  total_real_ends[total_real_ends == -1] = 0
+  #total_real_starts[total_real_starts == -1] = 0
+  #total_real_ends[total_real_ends == -1] = 0
   total_real_starts = list(total_real_starts)
   total_real_ends = list(total_real_ends)
 
   true_positives = 0
+  #false_positives = 0
+  #false_negatives = 0
   for index, (pred_start, real_start, pred_end, real_end) in enumerate(zip(predicted_starts,total_real_starts, predicted_ends, total_real_ends)):
     if(predicted_starts[index] == total_real_starts[index] and predicted_ends[index] == total_real_ends[index]):
       true_positives += 1
@@ -288,15 +293,21 @@ def target_extraction_results(real_starts, real_ends, predicted_starts, predicte
   total_time = time.time() - initial_time
   print("\nTrue positives include only cases in which start and end were predicted correctly, only the first target of the span and cases where the model predicted correctly that there were no targets in the span\n")
   print("Total true positives:", true_positives)
-  print("Accuracy", true_positives/len(predicted_starts))
+  print("Accuracy", true_positives/(len(predicted_starts))) # TO DO: CORRECT THIS
   print("Total target extraction time in minutes:", round((total_time/60),2))
- # TO DO: calculate efficiency measure
+
+
+  total_time = time.time() - initial_time #total_time + training_time + eval_time
+
+
+
+ # TO DO: calculate efficiency measure + precision, recall, f1
  # print size measure
  # print time measure
  
 def target_extraction(training_tokenized_dataframe, testing_tokenized_dataframe, epochs_qnt, training_steps, batch_size, initial_time, train_dataset_len):
   # Load configurations and pretrained model
-  config = AutoConfig.from_pretrained(pretrained_model_name_or_path='distilbert-base-uncased', n_layers=4, hidden_dim=1200, dim=312, max_position_embeddings=312)
+  config = AutoConfig.from_pretrained(pretrained_model_name_or_path='distilbert-base-uncased', n_layers=4, hidden_dim=1200, dim=312, max_position_embeddings=512)
   print("Configurations:\n", config)
   qa_model = transformers.DistilBertForQuestionAnswering(config) 
   model = qa_model.from_pretrained(pretrained_weights) 
@@ -325,7 +336,7 @@ def target_extraction(training_tokenized_dataframe, testing_tokenized_dataframe,
 def polarity_classification_training(model, optimizer, epochs_qnt, training_steps, batch_size, training_tokenized_dataframe):
   model.train() # only sets the training mode
   #num warmup steps is default value in glue.py
-  scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps = 0,num_training_steps = training_steps)
+  scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps = 0.1,num_training_steps = training_steps)
   for epoch in range(0,epochs_qnt):
     print("\nEPOCH", epoch, "\n")
     train_loss = 0.0
@@ -385,7 +396,7 @@ def polarity_classification_evaluation(model, batch_size, tokenized_testing_data
 def polarity_classification_results(real_polarities, predicted_polarities):
   total_real_polarities = numpy.concatenate(real_polarities, axis=0)
   unique, frequency = numpy.unique(total_real_polarities,return_counts = True) 
-  print(unique, frequency)
+  #print(unique, frequency)
   #total_real_polarities[total_real_polarities == 2] = 0
   total_real_polarities = list(total_real_polarities)
 
@@ -424,6 +435,8 @@ def polarity_classification_results(real_polarities, predicted_polarities):
         true_positives_total -= 1
 
     else:
+      false_positives_total += 1
+      false_negatives_total += 1
       #print("WRONG", pred_aux, real_aux)
       if(pred_aux == 0):
         false_positives_POS += 1
@@ -433,50 +446,46 @@ def polarity_classification_results(real_polarities, predicted_polarities):
         false_positives_NEU += 1
       elif(pred_aux == 3):
         false_positives_ABSENT += 1
-        false_negatives_total += 1
+        false_negatives_total -= 1
+      
       if(real_aux == 0):
         false_negatives_POS += 1
       elif(real_aux == 1):
+        #print("negative")
         false_negatives_NEG += 1
       elif(real_aux == 2):
         false_negatives_NEU += 1
       elif(real_aux == 3):
         false_negatives_ABSENT += 1
-        false_positives_total += 1
-
-
+        #false_positives_total -= 1
 
   precision_total = precision(true_positives_total,false_positives_total)
   recall_total = recall(true_positives_total,false_negatives_total)
   f1_total = f1(precision_total,recall_total)
 
   precision_POS = precision(true_positives_POS, false_positives_POS)
-  recall_POS = recall(true_positives_POS, false_positives_POS)
+  recall_POS = recall(true_positives_POS, false_negatives_POS)
   f1_POS = f1(precision_POS, recall_POS)
 
   precision_NEG = precision(true_positives_NEG, false_positives_NEG)
-  recall_NEG = recall(true_positives_NEG, false_positives_NEG)
+  recall_NEG = recall(true_positives_NEG, false_negatives_NEG)
   f1_NEG = f1(precision_NEG, recall_NEG)
 
   precision_NEU = precision(true_positives_NEU, false_positives_NEU)
-  recall_NEU = recall(true_positives_NEU, false_positives_NEU)
+  recall_NEU = recall(true_positives_NEU, false_negatives_NEU)
   f1_NEU = f1(precision_NEU, recall_NEU)
 
   precision_ABSENT = precision(true_positives_ABSENT, false_positives_ABSENT)
-  recall_ABSENT = recall(true_positives_ABSENT, false_positives_ABSENT)
+  recall_ABSENT = recall(true_positives_ABSENT, false_negatives_ABSENT)
   f1_ABSENT = f1(precision_ABSENT, recall_ABSENT)
 
   total_time = time.time() - initial_time #total_time + training_time + eval_time
-  print("Total true positives - both span start and end positions:", true_positives_total)
-  print("Accuracy", true_positives_total/len(predicted_polarities))
+  print("Total true positives", true_positives_total)
+  print("True Positives Positive:", true_positives_POS, "True Positives Negative:", true_positives_NEG, "True Positives Neutral:", true_positives_NEU, "True Positives Absent:", true_positives_ABSENT)
+  print("False Positives Positive:", false_positives_POS, "False Positives Negative:", false_positives_NEG, "False Positives Neutral:", false_positives_NEU, "False Positives Absent:", false_positives_ABSENT)
+  print("False Negatives Positive:", false_negatives_POS, "False Negatives Negative:", false_negatives_NEG, "False Negatives Neutral:", false_negatives_NEU, "False Negatives Absent:", false_negatives_ABSENT)
+  print("\nAccuracy", true_positives_total/(len(predicted_polarities)-true_positives_ABSENT-false_negatives_ABSENT))
   print("Total time in minutes:", round((total_time/60),2))
-  print("Parameters: ")
-  print("Number of epochs:", epochs_qnt)
-  print("Batch size:", batch_size)
-  print("DistilBERT used instead of BERT")
-  print("Number of hidden layers: 4")
-  print("Hidden size: 312")
-  print("Intermediate size: 1200")
 
   print("\nPrecisions:")
   print("Positive", precision_POS)
@@ -502,7 +511,7 @@ def polarity_classification_results(real_polarities, predicted_polarities):
 
 def polarity_classification(training_tokenized_dataframe, tokenized_testing_dataset, epochs_qnt, training_steps, batch_size):
   # labels = Positive, Negative, -removed Neutral for now- , No target in the span
-  config = DistilBertConfig(pretrained_model_name_or_path='distilbert-base-uncased', n_layers=4, hidden_dim=1200, dim=312, max_position_embeddings=312, num_labels=4) 
+  config = DistilBertConfig(pretrained_model_name_or_path='distilbert-base-uncased',  num_labels=4) #, n_layers=4, hidden_dim=1200, dim=312)#, max_position_embeddings=312) 
   model = transformers.DistilBertForSequenceClassification(config)
   print("Configurations:\n", config)
 
@@ -570,10 +579,10 @@ print("\nREORGANIZING DATASET TO PERFORM SMART BATCHING\n")
 training_tokenized_dataframe = read_dataset('data/laptop14_train.txt', tokenizer)
 testing_tokenized_dataframe  = read_dataset('data/laptop14_test.txt', tokenizer)
 
-if(opt == 1):
+if(opt == 0):
   print("\nTARGET EXTRACTION STARTING\n")
   target_extraction(training_tokenized_dataframe, testing_tokenized_dataframe, epochs_qnt, training_steps, batch_size, initial_time, train_dataset_len)
-#elif(opt == 2):
+elif(opt == 1):
   print("\nPOLARITY CLASSIFICATION STARTING\n")
   polarity_classification(training_tokenized_dataframe, testing_tokenized_dataframe, epochs_qnt, training_steps, batch_size)
 
@@ -601,7 +610,7 @@ https://colab.research.google.com/drive/1Er23iD96x_SzmRG8md1kVggbmz0su_Q5#scroll
 
 First steps reference:
 
-#code extracted from tutorial at http://jalammar.github.io/a-visual-guide-to-using-bert-for-the-first-time/
+tutorial at http://jalammar.github.io/a-visual-guide-to-using-bert-for-the-first-time/
 
 
 Helper links
