@@ -29,7 +29,7 @@ pip3 install pytorch
 If some library is not recognized by the system, try the general formula pip3 install name_of_the_library
 These commands are meant for Python 3, and pip 3, for previous versions try removing the "3" as in "python main.py" and "pip install"
 
-
+Inside the other branches ( not the master) and possibly in the local repository are traces of the roads not taken.
 
 Additional remarks:
 Results are poor, code must go through revision 
